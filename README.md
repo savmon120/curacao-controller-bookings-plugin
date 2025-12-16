@@ -1,0 +1,1 @@
+# curacao-controller-bookings-plugin
