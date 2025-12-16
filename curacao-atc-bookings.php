@@ -3,7 +3,7 @@
  * Plugin Name: Curacao FIR ATC Bookings
  * Description: ATC booking system for WordPress, integrating with VATSIM ATC Bookings API.
  * Version: 1.0
- * Author: Sav Monzac
+ * Author: Sav
  * GitHub Plugin URI: savmon120/curacao-controller-bookings-plugin
  * Primary Branch: main
  */
