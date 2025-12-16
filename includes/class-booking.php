@@ -1,5 +1,9 @@
 <?php
+<<<<<<< HEAD
 class Curacao_ATC_Booking {
+=======
+class VatCar_ATC_Booking {
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
 
     /**
      * Render the booking form (shortcode handler).
@@ -24,8 +28,13 @@ class Curacao_ATC_Booking {
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['callsign'])) {
 
             // Nonce verification
+<<<<<<< HEAD
             if (!isset($_POST['curacao_booking_nonce'])
                 || !wp_verify_nonce($_POST['curacao_booking_nonce'], 'curacao_new_booking')) {
+=======
+            if (!isset($_POST['vatcar_booking_nonce'])
+                || !wp_verify_nonce($_POST['vatcar_booking_nonce'], 'vatcar_new_booking')) {
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
                 wp_die('Security check failed');
             }
 
@@ -45,7 +54,11 @@ class Curacao_ATC_Booking {
 
                 $result = self::save_booking([
                     // Always use the authenticated controller's CID, do not trust POST
+<<<<<<< HEAD
                     'cid'         => self::curacao_get_cid(),
+=======
+                    'cid'         => self::vatcar_get_cid(),
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
                     'callsign'    => sanitize_text_field($_POST['callsign'] ?? ''),
                     'start'       => $start,
                     'end'         => $end,
@@ -90,7 +103,11 @@ class Curacao_ATC_Booking {
         if (empty($data['callsign'])) return new WP_Error('missing_callsign', 'You must select a station.');
         if (empty($data['start']))    return new WP_Error('missing_start', 'You must select a start date and time.');
         if (empty($data['end']))      return new WP_Error('missing_end', 'You must select an end date and time.');
+<<<<<<< HEAD
         if (!Curacao_ATC_Validation::valid_callsign($data['callsign'])) {
+=======
+        if (!VatCar_ATC_Validation::valid_callsign($data['callsign'])) {
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
             return new WP_Error('invalid_callsign', 'Invalid callsign format.');
         }
 
@@ -101,21 +118,36 @@ class Curacao_ATC_Booking {
         if (strtotime($data['end']) <= strtotime($data['start'])) {
             return new WP_Error('invalid_end', 'End time must be after start time.');
         }
+<<<<<<< HEAD
         if (Curacao_ATC_Validation::has_overlap($data['callsign'], $data['start'], $data['end'])) {
+=======
+        if (VatCar_ATC_Validation::has_overlap($data['callsign'], $data['start'], $data['end'])) {
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
             return new WP_Error('overlap', 'Booking overlaps with existing one.');
         }
 
         // Confirm caller identity
+<<<<<<< HEAD
         $current_cid = self::curacao_get_cid();
+=======
+        $current_cid = self::vatcar_get_cid();
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
         if ((string)$data['cid'] !== (string)$current_cid) {
             return new WP_Error('unauthorized', 'You can only book for your own CID.');
         }
 
         // Service account CID for API calls
+<<<<<<< HEAD
         $api_cid = defined('CURACAO_VATSIM_API_CID') ? (string)CURACAO_VATSIM_API_CID : (string)$current_cid;
 
         // Remote API call: POST /booking
         $endpoint = CURACAO_VATSIM_API_BASE . '/api/booking';
+=======
+        $api_cid = defined('VATCAR_VATSIM_API_CID') ? (string)VATCAR_VATSIM_API_CID : (string)$current_cid;
+
+        // Remote API call: POST /booking
+        $endpoint = VATCAR_VATSIM_API_BASE . '/api/booking';
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
         $payload  = [
             'callsign'    => $data['callsign'],
             'cid'         => (int)$api_cid, // service account CID
@@ -126,7 +158,11 @@ class Curacao_ATC_Booking {
             'subdivision' => $data['subdivision'],
         ];
         $response = wp_remote_post($endpoint, [
+<<<<<<< HEAD
             'headers' => curacao_vatsim_headers(),
+=======
+            'headers' => vatcar_vatsim_headers(),
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
             'body'    => wp_json_encode($payload),
             'timeout' => 15,
         ]);
@@ -172,14 +208,22 @@ class Curacao_ATC_Booking {
         $booking = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE id=%d", $id));
         if (!$booking) return new WP_Error('not_found', 'Booking not found.');
 
+<<<<<<< HEAD
         $current_cid = self::curacao_get_cid();
+=======
+        $current_cid = self::vatcar_get_cid();
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
         if ((string)$booking->cid !== (string)$current_cid) {
             return new WP_Error('unauthorized', 'You can only edit your own bookings.');
         }
 
         if (empty($data['callsign'])) return new WP_Error('missing_callsign', 'You must select a station.');
         if (empty($data['start']) || empty($data['end'])) return new WP_Error('missing_times', 'Start and end times are required.');
+<<<<<<< HEAD
         if (!Curacao_ATC_Validation::valid_callsign($data['callsign'])) {
+=======
+        if (!VatCar_ATC_Validation::valid_callsign($data['callsign'])) {
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
             return new WP_Error('invalid_callsign', 'Invalid callsign format.');
         }
 
@@ -187,7 +231,11 @@ class Curacao_ATC_Booking {
         if (strtotime($data['start']) < strtotime($now_plus_6h)) return new WP_Error('invalid_start', 'Start time must be at least 2 hours from now.');
         if (strtotime($data['end']) <= strtotime($data['start'])) return new WP_Error('invalid_end', 'End time must be after start time.');
 
+<<<<<<< HEAD
         if (Curacao_ATC_Validation::has_overlap($data['callsign'], $data['start'], $data['end'])) {
+=======
+        if (VatCar_ATC_Validation::has_overlap($data['callsign'], $data['start'], $data['end'])) {
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
             return new WP_Error('overlap', 'Booking overlaps with existing one.');
         }
 
@@ -196,7 +244,11 @@ class Curacao_ATC_Booking {
         }
 
         // Remote API call: PUT /booking/{id}
+<<<<<<< HEAD
         $endpoint = CURACAO_VATSIM_API_BASE . '/api/booking/' . (int)$booking->external_id;
+=======
+        $endpoint = VATCAR_VATSIM_API_BASE . '/api/booking/' . (int)$booking->external_id;
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
         $payload  = [
             'callsign'    => $data['callsign'],
             'cid'         => (int)$booking->api_cid, // service account CID
@@ -208,7 +260,11 @@ class Curacao_ATC_Booking {
         ];
         $response = wp_remote_request($endpoint, [
             'method'  => 'PUT',
+<<<<<<< HEAD
             'headers' => curacao_vatsim_headers(),
+=======
+            'headers' => vatcar_vatsim_headers(),
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
             'body'    => wp_json_encode($payload),
             'timeout' => 15,
         ]);
@@ -247,7 +303,11 @@ class Curacao_ATC_Booking {
         $booking = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE id=%d", $id));
         if (!$booking) return new WP_Error('not_found', 'Booking not found.');
 
+<<<<<<< HEAD
         $current_cid = self::curacao_get_cid();
+=======
+        $current_cid = self::vatcar_get_cid();
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
         $super_cid   = '140'; // Danny CID (change if needed)
 
         if ((string)$booking->cid !== (string)$current_cid && (string)$current_cid !== (string)$super_cid) {
@@ -260,10 +320,17 @@ class Curacao_ATC_Booking {
         }
 
         // Remote API call: DELETE /booking/{id}
+<<<<<<< HEAD
         $endpoint = CURACAO_VATSIM_API_BASE . '/api/booking/' . (int)$booking->external_id;
         $response = wp_remote_request($endpoint, [
             'method'  => 'DELETE',
             'headers' => curacao_vatsim_headers(),
+=======
+        $endpoint = VATCAR_VATSIM_API_BASE . '/api/booking/' . (int)$booking->external_id;
+        $response = wp_remote_request($endpoint, [
+            'method'  => 'DELETE',
+            'headers' => vatcar_vatsim_headers(),
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
             'body'    => wp_json_encode(['cid' => (int)$booking->api_cid]),
             'timeout' => 15,
         ]);
@@ -290,7 +357,11 @@ class Curacao_ATC_Booking {
     /**
      * Get current CID depending on environment.
      */
+<<<<<<< HEAD
     public static function curacao_get_cid() {
+=======
+    public static function vatcar_get_cid() {
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
         if (function_exists('vatsim_connect_get_cid')) {
             return vatsim_connect_get_cid(); // production VATSIM Connect
         }
@@ -304,8 +375,13 @@ class Curacao_ATC_Booking {
      * AJAX handler: update booking.
      */
     public static function ajax_update_booking() {
+<<<<<<< HEAD
         if (!isset($_POST['curacao_update_nonce'])
             || !wp_verify_nonce($_POST['curacao_update_nonce'], 'curacao_update_booking')) {
+=======
+        if (!isset($_POST['vatcar_update_nonce'])
+            || !wp_verify_nonce($_POST['vatcar_update_nonce'], 'vatcar_update_booking')) {
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
             wp_send_json_error('Security check failed');
         }
 
@@ -329,8 +405,13 @@ class Curacao_ATC_Booking {
      * AJAX handler: delete booking.
      */
     public static function ajax_delete_booking() {
+<<<<<<< HEAD
         if (!isset($_POST['curacao_delete_nonce'])
             || !wp_verify_nonce($_POST['curacao_delete_nonce'], 'curacao_delete_booking')) {
+=======
+        if (!isset($_POST['vatcar_delete_nonce'])
+            || !wp_verify_nonce($_POST['vatcar_delete_nonce'], 'vatcar_delete_booking')) {
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
             wp_send_json_error('Security check failed');
         }
 

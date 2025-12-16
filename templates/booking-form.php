@@ -1,7 +1,11 @@
 <?php
 /**
  * New Booking Form Template
+<<<<<<< HEAD
  * Location: wp-content/plugins/curacao-atc-bookings/templates/booking-form.php
+=======
+ * Location: wp-content/plugins/vatcar-fir-station-booking/templates/booking-form.php
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
  */
 ?>
 
@@ -66,7 +70,11 @@
 </div>
 
 <form method="post" id="newBookingForm">
+<<<<<<< HEAD
   <?php wp_nonce_field('curacao_new_booking','curacao_booking_nonce'); ?>
+=======
+  <?php wp_nonce_field('vatcar_new_booking','vatcar_booking_nonce'); ?>
+>>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
   <input type="hidden" id="input_mode" name="input_mode" value="utc">
 
   <div class="form-row">
