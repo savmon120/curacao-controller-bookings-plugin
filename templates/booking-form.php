@@ -1,11 +1,7 @@
 <?php
 /**
  * New Booking Form Template
-<<<<<<< HEAD
- * Location: wp-content/plugins/curacao-atc-bookings/templates/booking-form.php
-=======
  * Location: wp-content/plugins/vatcar-fir-station-booking/templates/booking-form.php
->>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
  */
 ?>
 
