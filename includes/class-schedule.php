@@ -1,9 +1,5 @@
 <?php
-<<<<<<< HEAD
-class Curacao_ATC_Schedule {
-=======
 class VatCar_ATC_Schedule {
->>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
     public static function render_table() {
         // Fetch from VATSIM API
         $query = add_query_arg([
@@ -11,17 +7,10 @@ class VatCar_ATC_Schedule {
             'subdivision' => 'CUR',
             'sort'        => 'start',
             'sort_dir'    => 'asc',
-<<<<<<< HEAD
-        ], CURACAO_VATSIM_API_BASE . '/api/booking');
-
-        $response = wp_remote_get($query, [
-            'headers' => curacao_vatsim_headers(),
-=======
         ], VATCAR_VATSIM_API_BASE . '/api/booking');
 
         $response = wp_remote_get($query, [
             'headers' => vatcar_vatsim_headers(),
->>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
             'timeout' => 15,
         ]);
 
@@ -97,21 +86,13 @@ class VatCar_ATC_Schedule {
                     }
 
                     // Only log info if debug flag is enabled
-<<<<<<< HEAD
-                    if (defined('CURACAO_ATC_DEBUG') && CURACAO_ATC_DEBUG) {
-=======
                     if (defined('VATSIM_ATC_DEBUG') && VATSIM_ATC_DEBUG) {
->>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
                         error_log("ATC schedule sync: inserted={$inserted}, updated={$updated}");
                     }
                 }
             } else {
                 // Only log unexpected API responses if debug is enabled
-<<<<<<< HEAD
-                if (defined('CURACAO_ATC_DEBUG') && CURACAO_ATC_DEBUG) {
-=======
                 if (defined('VATCAR_ATC_DEBUG') && VATCAR_ATC_DEBUG) {
->>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
                     error_log('Unexpected VATSIM API response (not array): ' . print_r($data, true));
                 }
             }
@@ -124,11 +105,7 @@ class VatCar_ATC_Schedule {
         global $wpdb;
         $table = $wpdb->prefix . 'atc_bookings';
         $bookings = $wpdb->get_results("SELECT * FROM `$table` ORDER BY `start` ASC");
-<<<<<<< HEAD
-        $current_cid = Curacao_ATC_Booking::curacao_get_cid();
-=======
         $current_cid = VatCar_ATC_Booking::vatcar_get_cid();
->>>>>>> ee05cba (Generalise from Curacao references to VATCAR references)
         $super_cid = '140'; // Danny
 
         ob_start();
