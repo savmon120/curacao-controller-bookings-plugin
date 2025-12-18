@@ -36,6 +36,38 @@ require_once plugin_dir_path(__FILE__) . 'includes/class-booking.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-schedule.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-validation.php';
 
+// Cleanup expired bookings function
+function vatcar_cleanup_expired_bookings() {
+    global $wpdb;
+    $table = $wpdb->prefix . 'atc_bookings';
+    $now = current_time('mysql');
+    $wpdb->query($wpdb->prepare("DELETE FROM $table WHERE end < %s", $now));
+}
+
+// Schedule cleanup on activation
+register_activation_hook(__FILE__, function() {
+    if (!wp_next_scheduled('vatcar_cleanup_expired_bookings')) {
+        wp_schedule_event(time(), 'daily', 'vatcar_cleanup_expired_bookings');
+    }
+});
+
+// Unschedule on deactivation
+register_deactivation_hook(__FILE__, function() {
+    wp_clear_scheduled_hook('vatcar_cleanup_expired_bookings');
+});
+
+// Hook the cleanup function
+add_action('vatcar_cleanup_expired_bookings', 'vatcar_cleanup_expired_bookings');
+
+// Add custom cron schedule for testing
+add_filter('cron_schedules', function($schedules) {
+    $schedules['every_5_minutes'] = [
+        'interval' => 300, // 5 minutes
+        'display' => __('Every 5 Minutes')
+    ];
+    return $schedules;
+});
+
 // Shortcodes
 add_shortcode('vatcar_atc_booking', ['VatCar_ATC_Booking', 'render_form']);
 add_shortcode('vatcar_atc_schedule', ['VatCar_ATC_Schedule', 'render_table']);
@@ -111,6 +143,11 @@ register_activation_hook(__FILE__, function() {
     }
     if (!in_array('api_cid', $columns)) {
         $wpdb->query("ALTER TABLE $table ADD COLUMN api_cid varchar(20) NULL");
+    }
+
+    // Schedule daily cleanup of expired bookings
+    if (!wp_next_scheduled('vatcar_cleanup_expired_bookings')) {
+        wp_schedule_event(time(), 'daily', 'vatcar_cleanup_expired_bookings');
     }
 });
 

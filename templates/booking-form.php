@@ -366,7 +366,6 @@
 
     setSelectOptions(endTimeSelect, allowed, endTimeSelect.value);
   }
-
   // ===== Preview: show what will be STORED in UTC =====
   function utcYMDHM(d){
     return d.getUTCFullYear() + "-" + pad(d.getUTCMonth()+1) + "-" + pad(d.getUTCDate()) + " " + pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes());
