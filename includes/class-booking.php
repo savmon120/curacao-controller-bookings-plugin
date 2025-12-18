@@ -8,7 +8,7 @@ class VatCar_ATC_Booking {
         ob_start();
 
         // Require login (except local dev)
-        if (strpos($_SERVER['HTTP_HOST'], 'curacao.vatcar.local') === false) {
+        if (strpos($_SERVER['HTTP_HOST'], 'curacao.vatcar.local') === true) {
             if (!is_user_logged_in()) {
                 echo '<p>You must be logged in to book a station.</p>';
                 return ob_get_clean();
@@ -111,6 +111,21 @@ class VatCar_ATC_Booking {
             return new WP_Error('unauthorized', 'You can only book for your own CID.');
         }
 
+        // Validate controller division and rating
+        $controller_data = self::get_controller_data($current_cid);
+        if (is_wp_error($controller_data)) {
+            return $controller_data;
+        }
+        if (empty($controller_data['division_id']) || $controller_data['division_id'] !== 'CAR') {
+            return new WP_Error('invalid_division', 'You must be in the VATCAR division to book a position.');
+        }
+        if (empty($controller_data['subdivision_id']) || $controller_data['subdivision_id'] !== 'CUR') {
+            return new WP_Error('invalid_subdivision', 'You must be in the CUR subdivision to book a position.');;
+        }
+        if (isset($controller_data['rating']) && intval($controller_data['rating']) < 2) {
+            return new WP_Error('insufficient_rating', 'You must have at least S1 rating to book.');
+        }
+
         // Service account CID for API calls
         $api_cid = defined('VATCAR_VATSIM_API_CID') ? (string)VATCAR_VATSIM_API_CID : (string)$current_cid;
 
@@ -175,6 +190,21 @@ class VatCar_ATC_Booking {
         $current_cid = self::vatcar_get_cid();
         if ((string)$booking->cid !== (string)$current_cid) {
             return new WP_Error('unauthorized', 'You can only edit your own bookings.');
+        }
+
+        // Validate controller division and rating
+        $controller_data = self::get_controller_data($current_cid);
+        if (is_wp_error($controller_data)) {
+            return $controller_data;
+        }
+        if (empty($controller_data['division_id']) || $controller_data['division_id'] !== 'CAR') {
+            return new WP_Error('invalid_division', 'You must be in the VATCAR division to book ATC positions.');
+        }
+        if (empty($controller_data['subdivision_id']) || $controller_data['subdivision_id'] !== 'CUR') {
+            return new WP_Error('invalid_subdivision', 'You must be in our subdivision to book ATC positions.');
+        }
+        if (isset($controller_data['rating']) && intval($controller_data['rating']) < 2) {
+            return new WP_Error('insufficient_rating', 'You must have at least S1 rating to book.');
         }
 
         if (empty($data['callsign'])) return new WP_Error('missing_callsign', 'You must select a station.');
@@ -295,9 +325,43 @@ class VatCar_ATC_Booking {
             return vatsim_connect_get_cid(); // production VATSIM Connect
         }
         if (isset($_SERVER['HTTP_HOST']) && strpos($_SERVER['HTTP_HOST'], 'curacao.vatcar.local') !== false) {
-            return '164'; // static CID for local testing; adjust as needed
+            return '1288763'; // static CID for local testing; adjust as needed
         }
         return (string)get_current_user_id(); // last fallback (numeric user id)
+    }
+
+    /**
+     * Fetch controller data from VATSIM API.
+     */
+    public static function get_controller_data($cid) {
+        // For local testing, return mock data
+        if (isset($_SERVER['HTTP_HOST']) && strpos($_SERVER['HTTP_HOST'], 'curacao.vatcar.local') !== false) {
+            return [
+                'id' => (int)$cid,
+                'division_id' => 'CAR',
+                'subdivision_id' => 'CUR',
+                'rating' => 3, // S2 for testing
+            ];
+        }
+
+        $url = "https://api.vatsim.net/v2/members/{$cid}";
+        $api_key = get_option('vatcar_vatsim_api_key', '');
+        $response = wp_remote_get($url, [
+            'headers' => ['X-API-Key' => $api_key],
+            'timeout' => 10,
+        ]);
+        if (is_wp_error($response)) {
+            return new WP_Error('api_error', 'Failed to fetch controller data from VATSIM.');
+        }
+        $code = wp_remote_retrieve_response_code($response);
+        if ($code !== 200) {
+            return new WP_Error('api_error', 'VATSIM API returned error ' . $code);
+        }
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        if (!$body || !isset($body['id'])) {
+            return new WP_Error('api_error', 'Invalid response from VATSIM API');
+        }
+        return $body;
     }
 
     /**
