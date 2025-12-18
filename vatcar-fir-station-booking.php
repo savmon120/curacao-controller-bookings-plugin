@@ -145,6 +145,24 @@ register_activation_hook(__FILE__, function() {
         $wpdb->query("ALTER TABLE $table ADD COLUMN api_cid varchar(20) NULL");
     }
 
+    // Create booking compliance history table
+    $history_table = $wpdb->prefix . 'atc_booking_compliance';
+    $history_sql = "CREATE TABLE $history_table (
+        id mediumint(9) NOT NULL AUTO_INCREMENT,
+        booking_id mediumint(9) NOT NULL,
+        cid varchar(20) NOT NULL,
+        callsign varchar(20) NOT NULL,
+        status varchar(20) NOT NULL,
+        checked_at datetime NOT NULL,
+        PRIMARY KEY  (id),
+        KEY booking_id (booking_id),
+        KEY cid (cid),
+        KEY checked_at (checked_at),
+        FOREIGN KEY (booking_id) REFERENCES $table(id) ON DELETE CASCADE
+    ) $charset_collate;";
+    
+    dbDelta($history_sql);
+
     // Schedule daily cleanup of expired bookings
     if (!wp_next_scheduled('vatcar_cleanup_expired_bookings')) {
         wp_schedule_event(time(), 'daily', 'vatcar_cleanup_expired_bookings');

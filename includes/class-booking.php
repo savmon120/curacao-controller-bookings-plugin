@@ -322,6 +322,88 @@ class VatCar_ATC_Booking {
     }
 
     /**
+     * Fetch live VATSIM data feed.
+     */
+    public static function get_vatsim_live_data() {
+        $url = 'https://data.vatsim.net/v3/vatsim-data.json';
+        $response = wp_remote_get($url, ['timeout' => 10]);
+        
+        if (is_wp_error($response)) {
+            return new WP_Error('api_error', 'Failed to fetch VATSIM live data.');
+        }
+        
+        $code = wp_remote_retrieve_response_code($response);
+        if ($code !== 200) {
+            return new WP_Error('api_error', 'VATSIM API returned error ' . $code);
+        }
+        
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        if (!$body || !isset($body['controllers'])) {
+            return new WP_Error('api_error', 'Invalid response from VATSIM live data');
+        }
+        
+        return $body['controllers'];
+    }
+
+    /**
+     * Check if a controller (CID) is logged in on a specific callsign.
+     */
+    public static function is_controller_logged_in($cid, $callsign) {
+        $controllers = self::get_vatsim_live_data();
+        
+        if (is_wp_error($controllers)) {
+            return false; // Can't verify, so assume offline
+        }
+        
+        foreach ($controllers as $controller) {
+            if ((int)$controller['cid'] === (int)$cid && $controller['callsign'] === $callsign) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
+    /**
+     * Check controller booking status: on_time, early, late, not_logged_in, or no_show.
+     * Returns: 'on_time', 'early', 'late', 'not_logged_in', 'no_show', or 'unknown'
+     */
+    public static function is_controller_logged_in_on_time($cid, $callsign, $booked_start) {
+        $controllers = self::get_vatsim_live_data();
+        
+        if (is_wp_error($controllers)) {
+            return 'unknown'; // Can't verify
+        }
+        
+        $booking_time = strtotime($booked_start);
+        $current_time = current_time('timestamp');
+        $window_start = $booking_time - (15 * 60); // 15 minutes before
+        $window_end = $booking_time + (15 * 60);   // 15 minutes after
+        
+        // Check if controller is logged in on this callsign
+        foreach ($controllers as $controller) {
+            if ((int)$controller['cid'] === (int)$cid && $controller['callsign'] === $callsign) {
+                $logon_time = strtotime($controller['logon_time']);
+                
+                if ($logon_time < $window_start) {
+                    return 'early';
+                } elseif ($logon_time > $window_end) {
+                    return 'late';
+                } else {
+                    return 'on_time';
+                }
+            }
+        }
+        
+        // Controller not logged in - check if it's a no-show
+        if ($current_time >= $booking_time) {
+            return 'no_show'; // Booking time has passed and not logged in
+        }
+        
+        return 'not_logged_in'; // Still waiting for booking time
+    }
+
+    /**
      * Get current CID depending on environment.
      */
     public static function vatcar_get_cid() {
@@ -410,5 +492,61 @@ class VatCar_ATC_Booking {
         } else {
             wp_send_json_success('Booking deleted successfully.');
         }
+    }
+
+    /**
+     * Record a booking compliance status check in the history.
+     * Status: 'on_time', 'early', 'late', 'not_logged_in', 'no_show', 'unknown'
+     */
+    public static function record_compliance_check($booking_id, $cid, $callsign, $status) {
+        global $wpdb;
+        $history_table = $wpdb->prefix . 'atc_booking_compliance';
+        
+        $result = $wpdb->insert(
+            $history_table,
+            [
+                'booking_id' => (int)$booking_id,
+                'cid' => sanitize_text_field($cid),
+                'callsign' => sanitize_text_field($callsign),
+                'status' => sanitize_text_field($status),
+                'checked_at' => current_time('mysql'),
+            ],
+            ['%d', '%s', '%s', '%s', '%s']
+        );
+        
+        return $result ? true : new WP_Error('db_error', 'Failed to record compliance check');
+    }
+
+    /**
+     * Get compliance history for a booking.
+     * Returns array of compliance records or WP_Error.
+     */
+    public static function get_booking_compliance_history($booking_id) {
+        global $wpdb;
+        $history_table = $wpdb->prefix . 'atc_booking_compliance';
+        
+        $records = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM $history_table WHERE booking_id = %d ORDER BY checked_at DESC",
+            (int)$booking_id
+        ));
+        
+        return $records ?: [];
+    }
+
+    /**
+     * Get compliance history for a CID across all bookings.
+     * Returns array of compliance records or empty array.
+     */
+    public static function get_cid_compliance_history($cid, $limit = 50) {
+        global $wpdb;
+        $history_table = $wpdb->prefix . 'atc_booking_compliance';
+        
+        $records = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM $history_table WHERE cid = %s ORDER BY checked_at DESC LIMIT %d",
+            sanitize_text_field($cid),
+            (int)$limit
+        ));
+        
+        return $records ?: [];
     }
 }
