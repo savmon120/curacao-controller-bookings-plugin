@@ -40,6 +40,28 @@ require_once plugin_dir_path(__FILE__) . 'includes/class-validation.php';
 add_shortcode('vatcar_atc_booking', ['VatCar_ATC_Booking', 'render_form']);
 add_shortcode('vatcar_atc_schedule', ['VatCar_ATC_Schedule', 'render_table']);
 
+function vatcar_detect_subdivision() {
+    $host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '';
+    if (strpos($host, 'curacao.vatcar.net') !== false || strpos($host, 'curacao.vatcar.local') !== false) {
+        return 'CUR';
+    }
+    if (strpos($host, 'piarco.vatcar.net') !== false) {
+        return 'PIA';
+    }
+
+    // Add more mappings as needed
+    return ''; // Default
+}
+
+function vatcar_get_subdivision_name($code) {
+    $names = [
+        'CUR' => 'Curaçao',
+        'PIA' => 'Piarco',
+        // Add more as needed
+    ];
+    return $names[$code] ?? $code; // Fallback to code if not found
+}
+
 // AJAX handlers
 add_action('wp_ajax_update_booking', ['VatCar_ATC_Booking', 'ajax_update_booking']);
 add_action('wp_ajax_delete_booking', ['VatCar_ATC_Booking', 'ajax_delete_booking']);
@@ -143,6 +165,7 @@ add_action('admin_menu', function() {
 
 add_action('admin_init', function() {
     register_setting('vatcar_atc_settings', 'vatcar_vatsim_api_key');
+    register_setting('vatcar_atc_settings', 'vatcar_fir_subdivision');
 
     add_settings_section(
         'vatcar_atc_main',

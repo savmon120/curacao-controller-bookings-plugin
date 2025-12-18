@@ -58,7 +58,7 @@ class VatCar_ATC_Booking {
                     echo '<p style="color:red;">Error: ' . esc_html($result->get_error_message()) . '</p>';
                 } else {
                     // Show success briefly, then redirect (2s)
-                    $target = 'https://curacao.vatcar.net/controller-schedule/';
+                    $target = home_url('/controller-schedule/');
 
                     echo '<p style="color:green; font-weight:600;">Booking saved successfully!</p>';
                     echo '<p style="color:#666; font-size:13px;">Redirecting to controller schedule…</p>';
@@ -119,8 +119,10 @@ class VatCar_ATC_Booking {
         if (empty($controller_data['division_id']) || $controller_data['division_id'] !== 'CAR') {
             return new WP_Error('invalid_division', 'You must be in the VATCAR division to book a position.');
         }
-        if (empty($controller_data['subdivision_id']) || $controller_data['subdivision_id'] !== 'CUR') {
-            return new WP_Error('invalid_subdivision', 'You must be in the CUR subdivision to book a position.');;
+        $required_subdivision = get_option('vatcar_fir_subdivision', 'CUR');
+        if (empty($controller_data['subdivision_id']) || $controller_data['subdivision_id'] !== $required_subdivision) {
+            $sub_name = vatcar_get_subdivision_name($required_subdivision);
+            return new WP_Error('invalid_subdivision', 'You must be in the ' . $sub_name . ' subdivision to book a position.');
         }
         if (isset($controller_data['rating']) && intval($controller_data['rating']) < 2) {
             return new WP_Error('insufficient_rating', 'You must have at least S1 rating to book.');
@@ -200,8 +202,10 @@ class VatCar_ATC_Booking {
         if (empty($controller_data['division_id']) || $controller_data['division_id'] !== 'CAR') {
             return new WP_Error('invalid_division', 'You must be in the VATCAR division to book ATC positions.');
         }
-        if (empty($controller_data['subdivision_id']) || $controller_data['subdivision_id'] !== 'CUR') {
-            return new WP_Error('invalid_subdivision', 'You must be in our subdivision to book ATC positions.');
+        $required_subdivision = get_option('vatcar_fir_subdivision', 'CUR');
+        if (empty($controller_data['subdivision_id']) || $controller_data['subdivision_id'] !== $required_subdivision) {
+            $sub_name = vatcar_get_subdivision_name($required_subdivision);
+            return new WP_Error('invalid_subdivision', 'You must be in the ' . $sub_name . ' subdivision to book a position.');
         }
         if (isset($controller_data['rating']) && intval($controller_data['rating']) < 2) {
             return new WP_Error('insufficient_rating', 'You must have at least S1 rating to book.');
