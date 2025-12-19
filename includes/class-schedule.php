@@ -347,7 +347,7 @@ class VatCar_ATC_Schedule {
         </style>
 
         <div class="atc-slot-cta">
-        <a class="atc-slot-btn" href="https://curacao.vatcar.net/book-a-slot/">Book Your ATC Slot</a>
+        <a class="atc-slot-btn" href="/book-a-slot/">Book Your ATC Slot</a>
         </div>
         ';
         echo '<table>';

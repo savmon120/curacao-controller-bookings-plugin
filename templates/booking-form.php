@@ -208,6 +208,13 @@
     return snapToNextQuarter(d);
   }
 
+  // Min start in UTC (always check against UTC regardless of display mode)
+  function minStartUTC(){
+    const now = new Date();
+    const d = new Date(now.getTime() + 2 * 60 * 60 * 1000); // +2 hours
+    return snapToNextQuarter(d);
+  }
+
   // "today" in active mode for date min
   function todayYMDInMode(){
     const n = nowInMode();
@@ -305,18 +312,18 @@
     const minYMD = todayYMDInMode();
     if (startDateInput.value < minYMD) startDateInput.value = minYMD;
 
-    const minStart = minStartInMode();
+    const minStartUTCTime = minStartUTC();
     const selectedDay = startDateInput.value;
 
     let allowed = START_OPTIONS_ALL;
 
-    // if selecting today in active mode, remove any times before minStart
-    if (selectedDay === todayYMDInMode()) {
-      allowed = START_OPTIONS_ALL.filter(t => {
-        const cand = buildMomentInMode(selectedDay, t);
-        return cand && cand.getTime() >= minStart.getTime();
-      });
-    }
+    // Filter times: ensure UTC result is at least 2 hours from now
+    allowed = START_OPTIONS_ALL.filter(t => {
+      const cand = buildMomentInMode(selectedDay, t);
+      if (!cand) return false;
+      // Compare against UTC minimum regardless of display mode
+      return cand.getTime() >= minStartUTCTime.getTime();
+    });
 
     setSelectOptions(startTimeSelect, allowed, startTimeSelect.value);
 
@@ -404,18 +411,18 @@
     const endMoment   = buildMomentInMode(endDateInput.value, endTimeSelect.value);
     if (!startMoment || !endMoment) return true;
 
-    const minStart = minStartInMode();
+/*    const minStart = minStartInMode();
     if (startMoment.getTime() < minStart.getTime()) {
       alert("Start time must be at least 2 hours from now (" + (mode==="utc"?"Zulu":"Local") + "), rounded up to the next 15-minute block.");
       return false;
     }
-
-    const minEnd = new Date(startMoment.getTime() + 60*60*1000);
+*/
+/*    const minEnd = new Date(startMoment.getTime() + 60*60*1000);
     if (endMoment.getTime() < minEnd.getTime()) {
       alert("End time must be at least 1 hour after start time.");
       return false;
     }
-
+*/
     return true;
   }
 
@@ -430,11 +437,57 @@
       const sLocal = buildMomentLocal(startDateInput.value, startTimeSelect.value);
       const eLocal = buildMomentLocal(endDateInput.value, endTimeSelect.value);
 
-      startDateInput.value = dateToYMD_UTC(sLocal);
-      startTimeSelect.value = timeToHM_UTC(sLocal);
+      const utcStartDate = dateToYMD_UTC(sLocal);
+      const utcStartTime = timeToHM_UTC(sLocal);
+      const utcEndDate = dateToYMD_UTC(eLocal);
+      const utcEndTime = timeToHM_UTC(eLocal);
 
-      endDateInput.value = dateToYMD_UTC(eLocal);
-      endTimeSelect.value = timeToHM_UTC(eLocal);
+      // Debug: log the conversion
+      console.log("Converting to UTC:", {
+        start: utcStartDate + " " + utcStartTime,
+        end: utcEndDate + " " + utcEndTime
+      });
+
+      // Remove existing hidden UTC inputs if any
+      const oldHidden = form.querySelectorAll('input[data-utc-override]');
+      oldHidden.forEach(h => h.remove());
+
+      // Create hidden inputs with UTC values (these will be submitted instead)
+      const hiddenStartDate = document.createElement('input');
+      hiddenStartDate.type = 'hidden';
+      hiddenStartDate.name = 'start_date';
+      hiddenStartDate.value = utcStartDate;
+      hiddenStartDate.setAttribute('data-utc-override', 'true');
+      
+      const hiddenStartTime = document.createElement('input');
+      hiddenStartTime.type = 'hidden';
+      hiddenStartTime.name = 'start_time';
+      hiddenStartTime.value = utcStartTime;
+      hiddenStartTime.setAttribute('data-utc-override', 'true');
+      
+      const hiddenEndDate = document.createElement('input');
+      hiddenEndDate.type = 'hidden';
+      hiddenEndDate.name = 'end_date';
+      hiddenEndDate.value = utcEndDate;
+      hiddenEndDate.setAttribute('data-utc-override', 'true');
+      
+      const hiddenEndTime = document.createElement('input');
+      hiddenEndTime.type = 'hidden';
+      hiddenEndTime.name = 'end_time';
+      hiddenEndTime.value = utcEndTime;
+      hiddenEndTime.setAttribute('data-utc-override', 'true');
+
+      // Disable the visible inputs so they don't submit
+      startDateInput.disabled = true;
+      startTimeSelect.disabled = true;
+      endDateInput.disabled = true;
+      endTimeSelect.disabled = true;
+
+      // Add hidden inputs to form
+      form.appendChild(hiddenStartDate);
+      form.appendChild(hiddenStartTime);
+      form.appendChild(hiddenEndDate);
+      form.appendChild(hiddenEndTime);
     } else {
       // In Zulu mode, the user entered UTC already – still safe/clean.
       // (No conversion needed)

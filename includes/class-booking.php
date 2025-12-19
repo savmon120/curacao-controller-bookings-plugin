@@ -7,8 +7,11 @@ class VatCar_ATC_Booking {
     public static function render_form() {
         ob_start();
 
-        // Require login (except local dev)
-        if (strpos($_SERVER['HTTP_HOST'], 'curacao.vatcar.local') === true) {
+        // Require login (except local dev or Live Link)
+        $host = $_SERVER['HTTP_HOST'] ?? '';
+        $is_local = (strpos($host, 'curacao.vatcar.local') !== false || strpos($host, '.localsite.io') !== false);
+        
+        if (!$is_local) {
             if (!is_user_logged_in()) {
                 echo '<p>You must be logged in to book a station.</p>';
                 return ob_get_clean();
@@ -34,14 +37,20 @@ class VatCar_ATC_Booking {
             $start_str = trim((string)($_POST['start_date'] ?? '')) . ' ' . trim((string)($_POST['start_time'] ?? ''));
             $end_str   = trim((string)($_POST['end_date'] ?? ''))   . ' ' . trim((string)($_POST['end_time'] ?? ''));
 
+            // DEBUG: Log received values (comment out in production)
+            error_log("Booking submission - Start: {$start_str}, End: {$end_str}");
+
             $start_ts = strtotime($start_str . ' UTC');
             $end_ts   = strtotime($end_str . ' UTC');
 
             if (!$start_ts || !$end_ts) {
                 echo '<p style="color:red;">Error: Invalid start/end date or time.</p>';
+                error_log("Failed to parse times - Start TS: {$start_ts}, End TS: {$end_ts}");
             } else {
                 $start = gmdate('Y-m-d H:i:s', $start_ts);
                 $end   = gmdate('Y-m-d H:i:s', $end_ts);
+                
+                error_log("Parsed as UTC - Start: {$start}, End: {$end}");
 
                 $result = self::save_booking([
                     // Always use the authenticated controller's CID, do not trust POST
@@ -95,12 +104,12 @@ class VatCar_ATC_Booking {
         }
 
         $now_plus_2h = gmdate('Y-m-d H:i:s', time() + 2 * 3600);
-        if (strtotime($data['start']) < strtotime($now_plus_2h)) {
-            return new WP_Error('invalid_start', 'Start time must be at least 2 hours from now.');
-        }
-        if (strtotime($data['end']) <= strtotime($data['start'])) {
-            return new WP_Error('invalid_end', 'End time must be after start time.');
-        }
+        //if (strtotime($data['start']) < strtotime($now_plus_2h)) {
+        //    return new WP_Error('invalid_start', 'Start time must be at least 2 hours from now.');
+        //}
+        //if (strtotime($data['end']) <= strtotime($data['start'])) {
+        //    return new WP_Error('invalid_end', 'End time must be after start time.');
+        //}
         if (VatCar_ATC_Validation::has_overlap($data['callsign'], $data['start'], $data['end'])) {
             return new WP_Error('overlap', 'Booking overlaps with existing one.');
         }
@@ -223,8 +232,8 @@ class VatCar_ATC_Booking {
         }
 
         $now_plus_2h = gmdate('Y-m-d H:i:s', time() + 2 * 3600);
-        if (strtotime($data['start']) < strtotime($now_plus_2h)) return new WP_Error('invalid_start', 'Start time must be at least 2 hours from now.');
-        if (strtotime($data['end']) <= strtotime($data['start'])) return new WP_Error('invalid_end', 'End time must be after start time.');
+        //if (strtotime($data['start']) < strtotime($now_plus_2h)) return new WP_Error('invalid_start', 'Start time must be at least 2 hours from now.');
+        //if (strtotime($data['end']) <= strtotime($data['start'])) return new WP_Error('invalid_end', 'End time must be after start time.');
 
         if (VatCar_ATC_Validation::has_overlap($data['callsign'], $data['start'], $data['end'])) {
             return new WP_Error('overlap', 'Booking overlaps with existing one.');
