@@ -94,7 +94,8 @@
 
   <div class="form-row">
     <label id="lbl-start-date">Start Date (Zulu / UTC):</label>
-    <input type="date" name="start_date" required>
+    <input type="date" name="start_date" required min="<?php echo gmdate('Y-m-d'); ?>">
+    <small>Must be at least 2 hours from now.</small>
   </div>
 
   <div class="form-row">
@@ -114,7 +115,7 @@
 
   <div class="form-row">
     <label id="lbl-end-date">End Date (Zulu / UTC):</label>
-    <input type="date" name="end_date" required>
+    <input type="date" name="end_date" required min="<?php echo gmdate('Y-m-d'); ?>">
   </div>
 
   <div class="form-row">

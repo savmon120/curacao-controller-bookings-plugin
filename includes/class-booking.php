@@ -94,8 +94,8 @@ class VatCar_ATC_Booking {
             return new WP_Error('invalid_callsign', 'Invalid callsign format.');
         }
 
-        $now_plus_6h = gmdate('Y-m-d H:i:s', time() + 2 * 3600);
-        if (strtotime($data['start']) < strtotime($now_plus_6h)) {
+        $now_plus_2h = gmdate('Y-m-d H:i:s', time() + 2 * 3600);
+        if (strtotime($data['start']) < strtotime($now_plus_2h)) {
             return new WP_Error('invalid_start', 'Start time must be at least 2 hours from now.');
         }
         if (strtotime($data['end']) <= strtotime($data['start'])) {
@@ -190,25 +190,30 @@ class VatCar_ATC_Booking {
         if (!$booking) return new WP_Error('not_found', 'Booking not found.');
 
         $current_cid = self::vatcar_get_cid();
-        if ((string)$booking->cid !== (string)$current_cid) {
+        $is_admin = current_user_can('manage_options');
+        
+        // Only admins can edit other people's bookings
+        if (!$is_admin && (string)$booking->cid !== (string)$current_cid) {
             return new WP_Error('unauthorized', 'You can only edit your own bookings.');
         }
 
-        // Validate controller division and rating
-        $controller_data = self::get_controller_data($current_cid);
-        if (is_wp_error($controller_data)) {
-            return $controller_data;
-        }
-        if (empty($controller_data['division_id']) || $controller_data['division_id'] !== 'CAR') {
-            return new WP_Error('invalid_division', 'You must be in the VATCAR division to book ATC positions.');
-        }
-        $required_subdivision = get_option('vatcar_fir_subdivision', 'CUR');
-        if (empty($controller_data['subdivision_id']) || $controller_data['subdivision_id'] !== $required_subdivision) {
-            $sub_name = vatcar_get_subdivision_name($required_subdivision);
-            return new WP_Error('invalid_subdivision', 'You must be in the ' . $sub_name . ' subdivision to book a position.');
-        }
-        if (isset($controller_data['rating']) && intval($controller_data['rating']) < 2) {
-            return new WP_Error('insufficient_rating', 'You must have at least S1 rating to book.');
+        // Validate controller division and rating (skip for admins editing on behalf)
+        if (!$is_admin) {
+            $controller_data = self::get_controller_data($current_cid);
+            if (is_wp_error($controller_data)) {
+                return $controller_data;
+            }
+            if (empty($controller_data['division_id']) || $controller_data['division_id'] !== 'CAR') {
+                return new WP_Error('invalid_division', 'You must be in the VATCAR division to book ATC positions.');
+            }
+            $required_subdivision = get_option('vatcar_fir_subdivision', 'CUR');
+            if (empty($controller_data['subdivision_id']) || $controller_data['subdivision_id'] !== $required_subdivision) {
+                $sub_name = vatcar_get_subdivision_name($required_subdivision);
+                return new WP_Error('invalid_subdivision', 'You must be in the ' . $sub_name . ' subdivision to book a position.');
+            }
+            if (isset($controller_data['rating']) && intval($controller_data['rating']) < 2) {
+                return new WP_Error('insufficient_rating', 'You must have at least S1 rating to book.');
+            }
         }
 
         if (empty($data['callsign'])) return new WP_Error('missing_callsign', 'You must select a station.');
@@ -217,8 +222,8 @@ class VatCar_ATC_Booking {
             return new WP_Error('invalid_callsign', 'Invalid callsign format.');
         }
 
-        $now_plus_6h = gmdate('Y-m-d H:i:s', time() + 2 * 3600);
-        if (strtotime($data['start']) < strtotime($now_plus_6h)) return new WP_Error('invalid_start', 'Start time must be at least 2 hours from now.');
+        $now_plus_2h = gmdate('Y-m-d H:i:s', time() + 2 * 3600);
+        if (strtotime($data['start']) < strtotime($now_plus_2h)) return new WP_Error('invalid_start', 'Start time must be at least 2 hours from now.');
         if (strtotime($data['end']) <= strtotime($data['start'])) return new WP_Error('invalid_end', 'End time must be after start time.');
 
         if (VatCar_ATC_Validation::has_overlap($data['callsign'], $data['start'], $data['end'])) {
@@ -282,12 +287,12 @@ class VatCar_ATC_Booking {
         if (!$booking) return new WP_Error('not_found', 'Booking not found.');
 
         $current_cid = self::vatcar_get_cid();
-        $super_cid   = '140'; // Danny CID (change if needed)
+        $is_admin = current_user_can('manage_options');
 
-        if ((string)$booking->cid !== (string)$current_cid && (string)$current_cid !== (string)$super_cid) {
-        return new WP_Error('unauthorized', 'You can only delete your own bookings.');
+        // Only admins can delete other people's bookings
+        if (!$is_admin && (string)$booking->cid !== (string)$current_cid) {
+            return new WP_Error('unauthorized', 'You can only delete your own bookings.');
         }
-
 
         if (empty($booking->external_id)) {
             return new WP_Error('api_error', 'Missing external booking ID for VATSIM delete.');

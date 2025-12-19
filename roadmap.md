@@ -6,3 +6,4 @@
 [x] Use vatsim data api to validate controller logged on for their booking
 [] Reminder emails / discord pings (??)
 [] Set FIR in settings and fetch stations (??) - investigate whether this can be done via vatsim api's
+[] Controller name on booking using either vatsim name or wordpress name

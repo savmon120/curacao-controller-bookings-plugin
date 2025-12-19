@@ -66,9 +66,9 @@
 
         <label>Start Date (Zulu / UTC)</label>
 
-        <input type="date" name="start_date" id="edit_start_date" required>
+        <input type="date" name="start_date" id="edit_start_date" required min="<?php echo gmdate('Y-m-d'); ?>">
 
-        <small>Calendar input is interpreted as UTC midnight</small>
+        <small>Calendar input is interpreted as UTC midnight. Must be at least 2 hours from now.</small>
 
       </div>
 
@@ -96,7 +96,7 @@
 
         <label>End Date (Zulu / UTC)</label>
 
-        <input type="date" name="end_date" id="edit_end_date" required>
+        <input type="date" name="end_date" id="edit_end_date" required min="<?php echo gmdate('Y-m-d'); ?>">
 
         <small>Calendar input is interpreted as UTC midnight</small>
 
@@ -332,7 +332,7 @@
 
     if (startCandidate < minStart) {
 
-      showMessage('Start time must be at least 6 hours from now (Zulu).', 'error');
+      showMessage('Start time must be at least 2 hours from now (Zulu).', 'error');
 
       return false;
 

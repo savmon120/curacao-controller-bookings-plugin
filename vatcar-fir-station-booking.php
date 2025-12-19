@@ -35,6 +35,7 @@ function vatcar_vatsim_headers() {
 require_once plugin_dir_path(__FILE__) . 'includes/class-booking.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-schedule.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-validation.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-dashboard.php';
 
 // Cleanup expired bookings function
 function vatcar_cleanup_expired_bookings() {
@@ -97,6 +98,8 @@ function vatcar_get_subdivision_name($code) {
 // AJAX handlers
 add_action('wp_ajax_update_booking', ['VatCar_ATC_Booking', 'ajax_update_booking']);
 add_action('wp_ajax_delete_booking', ['VatCar_ATC_Booking', 'ajax_delete_booking']);
+add_action('wp_ajax_vatcar_get_booking_status', ['VatCar_ATC_Dashboard', 'ajax_get_booking_status']);
+add_action('wp_ajax_vatcar_get_compliance_history', ['VatCar_ATC_Dashboard', 'ajax_get_compliance_history']);
 
 // Styles
 add_action('wp_enqueue_scripts', function() {
@@ -107,6 +110,19 @@ add_action('wp_enqueue_scripts', function() {
         '1.0'
     );
 }, 20);
+
+// Admin styles
+add_action('admin_enqueue_scripts', function($hook) {
+    // Only enqueue on our plugin's admin pages
+    if ($hook === 'toplevel_page_vatcar-atc-dashboard') {
+        wp_enqueue_style(
+            'VatCar-atc-bookings-admin',
+            plugin_dir_url(__FILE__) . 'assets/css/VatCar-atc-bookings.css',
+            [],
+            '1.0'
+        );
+    }
+});
 
 // Database schema
 register_activation_hook(__FILE__, function() {
@@ -207,13 +223,24 @@ add_action('init', function() {
 });
 
 
-// Admin settings page
+// Admin settings page and dashboard
 add_action('admin_menu', function() {
-    add_options_page(
-        'VatCar ATC Bookings',
-        'Vatcar ATC Bookings',
+    add_menu_page(
+        'ATC Bookings',
+        'ATC Bookings',
         'manage_options',
-        'vatcar-atc-bookings',
+        'vatcar-atc-dashboard',
+        ['VatCar_ATC_Dashboard', 'render_dashboard'],
+        'dashicons-calendar-alt',
+        30
+    );
+
+    add_submenu_page(
+        'vatcar-atc-dashboard',
+        'Settings',
+        'Settings',
+        'manage_options',
+        'vatcar-atc-settings',
         'vatcar_atc_settings_page'
     );
 });
@@ -228,7 +255,7 @@ add_action('admin_init', function() {
         function() {
             echo '<p>Configure your VATSIM ATC Bookings API connection.</p>';
         },
-        'vatcar-atc-bookings'
+        'vatcar-atc-settings'
     );
 
     add_settings_field(
@@ -238,7 +265,7 @@ add_action('admin_init', function() {
             $value = esc_attr(get_option('vatcar_vatsim_api_key', ''));
             echo '<input type="text" name="vatcar_vatsim_api_key" value="' . $value . '" class="regular-text" />';
         },
-        'vatcar-atc-bookings',
+        'vatcar-atc-settings',
         'vatcar_atc_main'
     );
 });
@@ -246,11 +273,11 @@ add_action('admin_init', function() {
 function vatcar_atc_settings_page() {
     ?>
     <div class="wrap">
-        <h1>FIR ATC Bookings</h1>
+        <h1>FIR ATC Bookings Settings</h1>
         <form method="post" action="options.php">
             <?php
             settings_fields('vatcar_atc_settings');
-            do_settings_sections('vatcar-atc-bookings');
+            do_settings_sections('vatcar-atc-settings');
             submit_button();
             ?>
         </form>
