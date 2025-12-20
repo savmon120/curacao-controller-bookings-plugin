@@ -105,10 +105,14 @@ class VatCar_ATC_Schedule {
             error_log('VATSIM schedule fetch failed: ' . $response->get_error_message());
         }
 
-        // Read from local cache and render
+        // Read from local cache and render (exclude past bookings)
         global $wpdb;
         $table = $wpdb->prefix . 'atc_bookings';
-        $bookings = $wpdb->get_results("SELECT * FROM `$table` ORDER BY `start` ASC");
+        $now = current_time('mysql');
+        $bookings = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM `$table` WHERE `end` >= %s ORDER BY `start` ASC",
+            $now
+        ));
         $current_cid = VatCar_ATC_Booking::vatcar_get_cid();
         $super_cid = '140'; // Danny
 
