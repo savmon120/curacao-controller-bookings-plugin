@@ -39,10 +39,9 @@ require_once plugin_dir_path(__FILE__) . 'includes/class-dashboard.php';
 
 // Cleanup expired bookings function
 function vatcar_cleanup_expired_bookings() {
-    global $wpdb;
-    $table = $wpdb->prefix . 'atc_bookings';
-    $now = current_time('mysql');
-    $wpdb->query($wpdb->prepare("DELETE FROM $table WHERE end < %s", $now));
+    // Bookings are no longer deleted to preserve compliance history
+    // Past bookings are filtered from the frontend schedule display instead
+    // This function is kept for backward compatibility with WP Cron
 }
 
 // Schedule cleanup on activation
