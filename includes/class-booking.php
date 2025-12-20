@@ -83,6 +83,62 @@ class VatCar_ATC_Booking {
     }
 
     /**
+     * Get controller name from WordPress user first_name and last_name
+     * In production: looks up user by CID (username)
+     * In local dev: falls back to current user during booking creation
+     */
+    private static function get_controller_name($cid) {
+        // Try to find user by CID (username) - works in production
+        $user = get_user_by('login', $cid);
+        
+        // If not found, try current logged-in user (for local dev during booking creation)
+        if (!$user) {
+            $user = wp_get_current_user();
+            if (!$user || $user->ID === 0) {
+                return 'Unknown';
+            }
+        }
+        
+        // Get name from the found user
+        $first_name = get_user_meta($user->ID, 'first_name', true);
+        $last_name = get_user_meta($user->ID, 'last_name', true);
+        
+        if (!empty($first_name) && !empty($last_name)) {
+            return trim($first_name . ' ' . $last_name);
+        } elseif (!empty($first_name)) {
+            return $first_name;
+        } elseif (!empty($last_name)) {
+            return $last_name;
+        }
+        
+        return 'Unknown';
+    }
+
+    /**
+     * Public wrapper for schedule sync to get controller names
+     * Only looks up by CID, doesn't fall back to current user
+     */
+    public static function get_controller_name_for_sync($cid) {
+        $user = get_user_by('login', $cid);
+        if (!$user) {
+            return 'Unknown';
+        }
+        
+        $first_name = get_user_meta($user->ID, 'first_name', true);
+        $last_name = get_user_meta($user->ID, 'last_name', true);
+        
+        if (!empty($first_name) && !empty($last_name)) {
+            return trim($first_name . ' ' . $last_name);
+        } elseif (!empty($first_name)) {
+            return $first_name;
+        } elseif (!empty($last_name)) {
+            return $last_name;
+        }
+        
+        return 'Unknown';
+    }
+
+    /**
      * Create booking via VATSIM API, then cache locally.
      */
     public static function save_booking($data) {
@@ -128,6 +184,9 @@ class VatCar_ATC_Booking {
             return new WP_Error('insufficient_rating', 'You must have at least S1 rating to book.');
         }
 
+        // Get controller name from WordPress
+        $controller_name = self::get_controller_name($current_cid);
+        
         // Service account CID for API calls
         $api_cid = defined('VATCAR_VATSIM_API_CID') ? (string)VATCAR_VATSIM_API_CID : (string)$current_cid;
 
@@ -165,16 +224,18 @@ class VatCar_ATC_Booking {
         // Cache locally with external_id. Preserve the real controller's cid, store api_cid separately.
         global $wpdb;
         $table = $wpdb->prefix . 'atc_bookings';
+        
         $wpdb->insert($table, [
-            'cid'         => (string)$current_cid,   // real controller
-            'api_cid'     => (string)$api_cid,       // service account
-            'callsign'    => (string)$data['callsign'],
-            'type'        => 'booking',
-            'start'       => (string)$data['start'],
-            'end'         => (string)$data['end'],
-            'division'    => (string)$data['division'],
-            'subdivision' => (string)$data['subdivision'],
-            'external_id' => (int)$body['id'],
+            'cid'              => (string)$current_cid,   // real controller
+            'api_cid'          => (string)$api_cid,       // service account
+            'callsign'         => (string)$data['callsign'],
+            'type'             => 'booking',
+            'start'            => (string)$data['start'],
+            'end'              => (string)$data['end'],
+            'division'         => (string)$data['division'],
+            'subdivision'      => (string)$data['subdivision'],
+            'external_id'      => (int)$body['id'],
+            'controller_name'  => (string)$controller_name,
         ]);
 
         return true;

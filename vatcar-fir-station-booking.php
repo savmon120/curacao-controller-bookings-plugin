@@ -160,6 +160,9 @@ register_activation_hook(__FILE__, function() {
     if (!in_array('api_cid', $columns)) {
         $wpdb->query("ALTER TABLE $table ADD COLUMN api_cid varchar(20) NULL");
     }
+    if (!in_array('controller_name', $columns)) {
+        $wpdb->query("ALTER TABLE $table ADD COLUMN controller_name varchar(100) NULL");
+    }
 
     // Create booking compliance history table
     $history_table = $wpdb->prefix . 'atc_booking_compliance';
