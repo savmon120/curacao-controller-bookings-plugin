@@ -47,7 +47,15 @@ class VatCar_ATC_Dashboard {
                         <?php foreach ($bookings as $booking): ?>
                             <tr data-id="<?php echo intval($booking->id); ?>">
                                 <td><strong><?php echo esc_html($booking->callsign); ?></strong></td>
-                                <td><?php echo esc_html($booking->cid); ?></td>
+                                <td>
+                                    <?php 
+                                    $name = isset($booking->controller_name) && !empty($booking->controller_name) 
+                                        ? $booking->controller_name 
+                                        : 'Unknown';
+                                    echo esc_html($name); 
+                                    ?><br>
+                                    <small style="color: #666;"><?php echo esc_html($booking->cid); ?></small>
+                                </td>
                                 <td>
                                     <small>
                                         <?php echo esc_html(date('M d, H:i', strtotime($booking->start))); ?>
@@ -56,9 +64,17 @@ class VatCar_ATC_Dashboard {
                                     </small>
                                 </td>
                                 <td>
-                                    <span class="booking-status" data-booking-id="<?php echo intval($booking->id); ?>" data-cid="<?php echo esc_attr($booking->cid); ?>" data-callsign="<?php echo esc_attr($booking->callsign); ?>" data-start="<?php echo esc_attr($booking->start); ?>">
-                                        <em>Loading...</em>
-                                    </span>
+                                    <?php if (!empty($booking->cid)): ?>
+                                        <span class="booking-status" 
+                                              data-booking-id="<?php echo intval($booking->id); ?>" 
+                                              data-cid="<?php echo esc_attr($booking->cid); ?>" 
+                                              data-callsign="<?php echo esc_attr($booking->callsign); ?>" 
+                                              data-start="<?php echo esc_attr($booking->start); ?>">
+                                            <em>Loading...</em>
+                                        </span>
+                                    <?php else: ?>
+                                        <span style="color: #999;">Unknown controller</span>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <button 

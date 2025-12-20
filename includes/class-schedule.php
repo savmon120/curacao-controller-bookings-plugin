@@ -48,20 +48,24 @@ class VatCar_ATC_Schedule {
                         if (!$external_id) continue;
 
                         // Upsert by external_id to keep local edits mapped
-                        $existing = $wpdb->get_var($wpdb->prepare(
-                            "SELECT id FROM `$table` WHERE `external_id` = %d",
+                        $existing = $wpdb->get_row($wpdb->prepare(
+                            "SELECT id, cid FROM `$table` WHERE `external_id` = %d",
                             $external_id
                         ));
+
+                        // Get controller name - use real CID if we have it, otherwise try api_cid
+                        $real_cid = $existing && !empty($existing->cid) ? $existing->cid : $api_cid;
+                        $controller_name = VatCar_ATC_Booking::get_controller_name_for_sync($real_cid);
 
                         if ($existing) {
                             $sql = "
                                 UPDATE `$table`
                                 SET `api_cid`=%s, `callsign`=%s, `type`=%s, `start`=%s, `end`=%s,
-                                    `division`=%s, `subdivision`=%s
+                                    `division`=%s, `subdivision`=%s, `controller_name`=%s
                                 WHERE `external_id`=%d
                             ";
                             $res = $wpdb->query($wpdb->prepare($sql,
-                                $api_cid, $callsign, $type, $start, $end, $division, $subdivision, $external_id
+                                $api_cid, $callsign, $type, $start, $end, $division, $subdivision, $controller_name, $external_id
                             ));
                             if ($res === false) {
                                 error_log('ATC update failed: ' . $wpdb->last_error);
@@ -71,11 +75,11 @@ class VatCar_ATC_Schedule {
                         } else {
                             $sql = "
                                 INSERT INTO `$table`
-                                    (`api_cid`, `callsign`, `type`, `start`, `end`, `division`, `subdivision`, `external_id`)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %d)
+                                    (`api_cid`, `callsign`, `type`, `start`, `end`, `division`, `subdivision`, `external_id`, `controller_name`)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %d, %s)
                             ";
                             $res = $wpdb->query($wpdb->prepare($sql,
-                                $api_cid, $callsign, $type, $start, $end, $division, $subdivision, $external_id
+                                $api_cid, $callsign, $type, $start, $end, $division, $subdivision, $external_id, $controller_name
                             ));
                             if ($res === false) {
                                 error_log('ATC insert failed: ' . $wpdb->last_error);
@@ -347,50 +351,27 @@ class VatCar_ATC_Schedule {
         </style>
 
         <div class="atc-slot-cta">
-        <a class="atc-slot-btn" href="https://curacao.vatcar.net/book-a-slot/">Book Your ATC Slot</a>
+        <a class="atc-slot-btn" href="/book-a-slot/">Book Your ATC Slot</a>
         </div>
         ';
         echo '<table>';
         echo '<tr><th>Controller</th><th>Start</th><th>End</th><th>Actions</th></tr>';
 
-        $cid_names = [
-            '140' => 'Danny',
-            '121' => 'Bradley',
-            '6'   => 'Elmeric',
-            '150' => 'Sidoine',
-            '31'  => 'Daniele',
-            '132' => 'Jacob',
-            '151' => 'Saviel',
-            '148' => 'Renald',
-            '48'  => 'Francis',
-            '149' => 'Teun',
-            '147' => 'Anthony',
-            '163' => 'Maxim',
-            '127' => 'Jheison',
-            '156' => 'Matas',
-            '162' => 'Kjell',
-            '13'  => 'Sean',
-            '158'  => 'Konrad',
-            '165'  => 'Rob',
-        ];
-
         foreach ($bookings as $booking) {
             echo '<tr data-id="' . esc_attr($booking->id) . '">';
 
-            // NOTE: your DB column is api_cid based on your insert/update code
-            // If your SELECT returns api_cid, use that for name mapping and permission checks.
-            $cid_value = '';
-            if (isset($booking->api_cid)) {
-                $cid_value = (string)$booking->api_cid;
-            } elseif (isset($booking->cid)) {
-                // fallback if your table actually has a `cid` column
-                $cid_value = (string)$booking->cid;
+            // Get CID for permission checks (use real controller CID, not api_cid)
+            $cid_value = isset($booking->cid) && !empty($booking->cid) ? (string)$booking->cid : (string)$booking->api_cid;
+
+            // Extract first name only from controller_name
+            $first_name = 'Unknown';
+            if (isset($booking->controller_name) && !empty($booking->controller_name)) {
+                $name_parts = explode(' ', $booking->controller_name);
+                $first_name = $name_parts[0];
             }
 
-            $cid_display = isset($cid_names[$cid_value]) ? $cid_names[$cid_value] : 'Unknown';
-
             echo '<td style="font-size:18px;">'
-               . '<span style="font-size:15px; color:#555;">' . esc_html($cid_display) . '</span><br>'
+               . '<span style="font-size:15px; color:#555;">' . esc_html($first_name) . '</span><br>'
                . '<b>' . esc_html($booking->callsign) . '</b>'
                . '</td>';
 
@@ -398,14 +379,15 @@ class VatCar_ATC_Schedule {
             echo '<td class="cur-dt" data-raw="' . esc_attr((string)$booking->start) . '" style="font-size:14px;"></td>';
             echo '<td class="cur-dt" data-raw="' . esc_attr((string)$booking->end)   . '" style="font-size:14px;"></td>';
 
-            // Only allow edit/delete if logged-in CID matches stored CID (api_cid)
-            // Allow edit/delete if it's your own OR Danny (CID 140)
-            if (
-                $cid_value !== '' &&
-                (
-                    (string)$cid_value === (string)$current_cid || (string)$current_cid === (string)$super_cid
-                )
-            ) {
+            // Allow edit/delete if:
+            // 1. Admin (has manage_options capability)
+            // 2. It's your own booking (CID matches)
+            // 3. Super user (CID 140 - Danny)
+            $is_admin = current_user_can('manage_options');
+            $is_own_booking = $cid_value !== '' && (string)$cid_value === (string)$current_cid;
+            $is_super = (string)$current_cid === (string)$super_cid;
+            
+            if ($is_admin || $is_own_booking || $is_super) {
                 echo '<td style="font-size:16px;">';
                 //echo '<a href="#" onclick="openEditModal(this)"'
                 //   . ' data-id="' . esc_attr($booking->id) . '"'
