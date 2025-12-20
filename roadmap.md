@@ -6,6 +6,9 @@
 [x] Use vatsim data api to validate controller logged on for their booking
 [] Reminder emails / discord pings (??)
 [] Set FIR in settings and fetch stations (??) - investigate whether this can be done via vatsim api's
-[] Controller name on booking using either vatsim name or wordpress name
+[x] Controller name on booking using either vatsim name or wordpress name
 [] Controller station booking based on rating
-[] Whitelisting visitors and solo certs to enable booking of stations
+[x] Whitelisting visitors and solo certs to enable booking of stations
+[] Filter booking form dropdown to show only authorized positions for whitelisted controllers
+[] Controller dashboard (??)
+[] Log all whitelisted controller entries for audit trail and potentially include in controller dashboard
