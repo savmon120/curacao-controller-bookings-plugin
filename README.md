@@ -20,22 +20,37 @@ The VATCAR FIR Station Booking Plugin enables VATSIM controllers to reserve, edi
 - **Reserve ATC Positions**: Simple booking form with date/time selection and callsign validation
 - **Edit Bookings**: Update callsign or timeslot (minimum 2 hours before scheduled start)
 - **Cancel Bookings**: Delete reservations with automatic API synchronization
-- **View Schedule**: Display upcoming bookings in a public schedule table
+- **View Schedule**: Display upcoming bookings in a public schedule table (past bookings hidden)
 - **Division & Rating Validation**: Automatic checks ensure you meet requirements to book (CAR division membership, appropriate controller rating)
 
 ### For FIR Staff (Administrators)
 - **Manage Bookings Dashboard**: View all bookings across the FIR with real-time login status
 - **Override Permissions**: Edit or delete any booking regardless of ownership
 - **Compliance Monitoring**: View detailed history of controller login compliance (on-time, late, early, no-show)
+- **Controller Whitelist**: Manage visitor controllers and solo certifications with position-specific authorizations
 - **Bypass Validation**: Admin edits skip division and rating checks (useful for special events)
 - **Real-Time Status Updates**: AJAX-driven status checks show whether controllers are logged in
+
+### Controller Whitelist System
+- **Visitor Authorization**: Allow controllers from other divisions/subdivisions to book specific positions
+- **Solo Certifications**: Grant local controllers permission to book positions above their rating (e.g., S1 booking tower)
+- **Position-Specific Permissions**: Select which positions each controller can book (or allow all)
+- **Expiration Dates**: Set temporary access with automatic expiry
+- **Renewal/Extension**: Easily extend expired authorizations without re-creating entries
+- **Auto-Populate Names**: Controller names automatically populate from WordPress accounts on login
+- **Authorization Types**: 
+  - **Visitor**: Bypasses division/subdivision checks, enforces position authorization
+  - **Solo**: Bypasses rating checks for authorized positions only (must be CAR/CUR)
+- **Backward Compatible**: No positions selected = all positions allowed (for legacy entries)
 
 ### Technical Features
 - **VATSIM API Synchronization**: All bookings are created, updated, and deleted via official API
 - **Local Caching**: Booking data cached in WordPress database for fast display
 - **Live Data Integration**: Fetches controller status from VATSIM data feed (15-second refresh rate)
 - **Compliance History Database**: Persistent record of login compliance for accountability
-- **Automated Cleanup**: WP-Cron job removes expired bookings older than 7 days
+- **Historical Data Preservation**: Past bookings retained for compliance tracking (filtered from public view)
+- **Controller Whitelist**: Database-backed authorization system for visitors and solo certifications
+- **Position-Level Permissions**: Granular control over which positions each controller can book
 - **Secure AJAX**: All operations use WordPress nonces and capability checks
 - **Git Updater Support**: Automatic plugin updates directly from GitHub repository
 
@@ -119,11 +134,12 @@ To verify API connectivity and database setup:
 5. On success, you'll be redirected to the schedule page
 
 **Validation Rules**:
-- Must be a member of CAR division (verified via VATSIM Member API)
-- Must hold at least S2 rating for TWR/APP positions, C1 for CTR positions
+- Must be a member of CAR division (verified via VATSIM Member API) OR be in the controller whitelist as a visitor
+- Must hold at least S1 rating (visitors/solo cert holders bypass rating checks for authorized positions)
 - Booking start must be minimum 2 hours in the future (UTC)
 - Cannot overlap with existing bookings for the same callsign
 - Cannot select past dates or times
+- Whitelisted controllers must book positions they're authorized for (if positions are specified)
 
 #### Editing a Booking
 
@@ -152,6 +168,17 @@ To verify API connectivity and database setup:
 1. Navigate to **ATC Bookings** → **Manage Bookings** in the WordPress admin menu
 2. The dashboard displays all bookings for your FIR subdivision
 3. Columns include: Callsign, CID, Start/End times, and **Real-Time Status**
+
+#### Managing Controller Whitelist
+
+1. Navigate to **ATC Bookings** → **Controller Whitelist** in the admin menu
+2. Add controllers by entering their CID, selecting authorization type, and choosing positions
+3. **Authorization Types**:
+   - **Visitor**: For controllers from other divisions/subdivisions (bypasses division/subdivision checks)
+   - **Solo**: For local controllers with certifications for specific positions (bypasses rating checks)
+4. **Position Selection**: Check specific positions they can book, or leave all unchecked for all positions
+5. **Expiration**: Optionally set an expiry date for temporary access
+6. **Renewal**: Click "Extend" or "Renew" to update expiration dates for existing authorizations
 
 #### Understanding Booking Status
 
@@ -212,17 +239,23 @@ define('VATCAR_ATC_DEBUG', true);
 
 ### Database Tables
 
-The plugin creates two tables on activation:
+The plugin creates three tables on activation:
 
 **`wp_atc_bookings`** (booking cache):
-- `id`, `cid`, `api_cid`, `callsign`, `type`, `start`, `end`, `division`, `subdivision`, `external_id`
+- `id`, `cid`, `api_cid`, `callsign`, `type`, `start`, `end`, `division`, `subdivision`, `external_id`, `controller_name`
 
 **`wp_atc_booking_compliance`** (compliance history):
 - `id`, `booking_id`, `cid`, `callsign`, `status`, `checked_at`
 
+**`wp_atc_controller_whitelist`** (visitor/solo authorization):
+- `id`, `cid`, `notes`, `added_by`, `date_added`, `expires_at`, `controller_name`, `authorization_type`
+
+**`wp_atc_authorized_positions`** (position-specific permissions):
+- `id`, `authorization_id`, `callsign`, `date_granted`
+
 ### WP-Cron Jobs
 
-- **`vatcar_cleanup_expired_bookings`**: Runs daily at midnight UTC to remove bookings older than 7 days
+- **`vatcar_cleanup_expired_bookings`**: Runs daily at midnight UTC (currently disabled - bookings preserved for compliance history)
 
 ## 📂 File Structure
 
@@ -307,13 +340,14 @@ vatcar-fir-station-booking/
 
 ### Expired Bookings Not Removed
 
-**Symptom**: Old bookings remain in database beyond 7 days
+**Symptom**: Old bookings remain in database indefinitely
 
-**Solutions**:
-1. Check WP-Cron status: Use WP Control plugin or `wp cron event list` via WP-CLI
-2. Verify `vatcar_cleanup_expired_bookings` is scheduled: Run diagnostic
-3. Manually trigger: `wp cron event run vatcar_cleanup_expired_bookings` (WP-CLI)
-4. Temporary workaround: Run SQL manually: `DELETE FROM wp_atc_bookings WHERE end < NOW() - INTERVAL 7 DAY`
+**This is expected behavior**: As of recent updates, bookings are no longer automatically deleted. They are preserved for compliance history tracking but filtered from the public schedule display. This ensures the compliance tracking system continues to work by maintaining historical booking data.
+
+**To manually clean old bookings** (if needed for database size concerns):
+```sql
+DELETE FROM wp_atc_bookings WHERE end < DATE_SUB(NOW(), INTERVAL 6 MONTH);
+```
 
 ### Plugin Update Not Available
 
@@ -366,9 +400,11 @@ Then refresh the WordPress admin dashboard to apply changes.
 
 ### Data Privacy
 - CIDs stored for booking ownership verification
-- No personal data (names, emails) stored in plugin tables
+- Controller names populated from WordPress user accounts (first name + last name)
+- No sensitive personal data stored in plugin tables
 - Compliance history tracks CID and timestamps only
-- GDPR compliance: Bookings auto-deleted after 7 days via WP-Cron
+- GDPR compliance: Bookings retained indefinitely for compliance history (can be manually purged if needed)
+- Expired whitelist entries remain visible but inactive
 
 ### Input Validation
 - All user inputs sanitized via `sanitize_text_field()`, `intval()`, etc.
@@ -431,8 +467,25 @@ For issues, questions, or feature requests:
 - **VATCAR Discord**: Contact FIR staff in the VATCAR Discord server
 - **VATSIM Forums**: Post in the Americas region forums
 
+## 🗺️ Roadmap
+
+See [roadmap.md](roadmap.md) for a complete list of completed features, planned features, and future considerations.
+
+### Recently Completed
+- ✅ Controller whitelist with position-specific authorization
+- ✅ Visitor and solo certification support
+- ✅ Auto-populated controller names from WordPress accounts
+- ✅ Expiration dates and renewal for whitelist entries
+- ✅ Compliance history tracking with real-time status monitoring
+- ✅ Historical booking preservation (filtered from public view)
+
+### Next Up
+- Filter booking form dropdown based on authorized positions
+- Rating-based position restrictions (enforce minimum ratings per position type)
+- Booking conflict warnings and templates
+
 ---
 
-**Version**: 1.0.0  
-**Last Updated**: 2025  
+**Version**: 1.2.0  
+**Last Updated**: December 2025  
 **Maintained by**: VATCAR FIR Staff
