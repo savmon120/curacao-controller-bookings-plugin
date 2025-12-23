@@ -1,4 +1,8 @@
 <?php
+if (!defined('ABSPATH')) {
+    exit; // Exit if accessed directly
+}
+
 /**
  * New Booking Form Template
  * Location: wp-content/plugins/vatcar-fir-station-booking/templates/booking-form.php

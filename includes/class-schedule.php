@@ -1,10 +1,20 @@
 <?php
+if (!defined('ABSPATH')) {
+    exit; // Exit if accessed directly
+}
+
 class VatCar_ATC_Schedule {
     public static function render_table() {
+        // Detect subdivision from hostname
+        $subdivision = vatcar_detect_subdivision();
+        if (empty($subdivision)) {
+            return '<p style="color:red; font-weight:bold;">Error: This site is not configured or recognized within the plugin. Please create a <a href="https://github.com/savmon120/curacao-controller-bookings-plugin/issues" target="_blank">GitHub issue</a>.</p>';
+        }
+
         // Fetch from VATSIM API
         $query = add_query_arg([
             'division'    => 'CAR',
-            'subdivision' => 'CUR',
+            'subdivision' => $subdivision,
             'sort'        => 'start',
             'sort_dir'    => 'asc',
         ], VATCAR_VATSIM_API_BASE . '/api/booking');

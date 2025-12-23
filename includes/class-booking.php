@@ -1,4 +1,8 @@
 <?php
+if (!defined('ABSPATH')) {
+    exit; // Exit if accessed directly
+}
+
 class VatCar_ATC_Booking {
 
     /**
@@ -8,7 +12,8 @@ class VatCar_ATC_Booking {
         ob_start();
 
         // Require login (except local dev)
-        if (strpos($_SERVER['HTTP_HOST'], 'curacao.vatcar.local') === true) {
+        $host = isset($_SERVER['HTTP_HOST']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST'])) : '';
+        if (strpos($host, 'curacao.vatcar.local') !== false) {
             if (!is_user_logged_in()) {
                 echo '<p>You must be logged in to book a station.</p>';
                 return ob_get_clean();
@@ -43,6 +48,13 @@ class VatCar_ATC_Booking {
                 $start = gmdate('Y-m-d H:i:s', $start_ts);
                 $end   = gmdate('Y-m-d H:i:s', $end_ts);
 
+                // Detect subdivision from hostname
+                $subdivision = vatcar_detect_subdivision();
+                if (empty($subdivision)) {
+                    echo '<p style="color:red;">Error: This site is not configured or recognized within the plugin. Please create a <a href="https://github.com/savmon120/curacao-controller-bookings-plugin/issues" target="_blank">GitHub issue</a>.</p>';
+                    return ob_get_clean();
+                }
+
                 $result = self::save_booking([
                     // Always use the authenticated controller's CID, do not trust POST
                     'cid'         => self::vatcar_get_cid(),
@@ -50,7 +62,7 @@ class VatCar_ATC_Booking {
                     'start'       => $start,
                     'end'         => $end,
                     'division'    => 'CAR',
-                    'subdivision' => 'CUR',
+                    'subdivision' => $subdivision,
                     'type'        => 'booking',
                 ]);
 
@@ -148,7 +160,7 @@ class VatCar_ATC_Booking {
         
         $exists = $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM $table WHERE cid = %s AND (expires_at IS NULL OR expires_at > %s)",
-            sanitize_text_field($cid),
+            $cid,
             $now
         ));
         
@@ -200,7 +212,7 @@ class VatCar_ATC_Booking {
         $table = $wpdb->prefix . 'atc_controller_whitelist';
         
         $result = $wpdb->delete($table, [
-            'cid' => sanitize_text_field($cid),
+            'cid' => $cid,
         ], ['%s']);
         
         return $result !== false;
@@ -216,7 +228,7 @@ class VatCar_ATC_Booking {
         $result = $wpdb->update(
             $table,
             ['expires_at' => $expires_at],
-            ['cid' => sanitize_text_field($cid)],
+            ['cid' => $cid],
             ['%s'],
             ['%s']
         );
@@ -234,7 +246,7 @@ class VatCar_ATC_Booking {
         // Check if CID is in whitelist
         $exists = $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM $table WHERE cid = %s",
-            sanitize_text_field($cid)
+            $cid
         ));
         
         if ((int)$exists === 0) {
@@ -252,7 +264,7 @@ class VatCar_ATC_Booking {
         $result = $wpdb->update(
             $table,
             ['controller_name' => $controller_name],
-            ['cid' => sanitize_text_field($cid)],
+            ['cid' => $cid],
             ['%s'],
             ['%s']
         );
@@ -319,7 +331,7 @@ class VatCar_ATC_Booking {
         // Get authorization entry
         $auth = $wpdb->get_row($wpdb->prepare(
             "SELECT id, authorization_type FROM $whitelist_table WHERE cid = %s AND (expires_at IS NULL OR expires_at > %s)",
-            sanitize_text_field($cid),
+            $cid,
             current_time('mysql')
         ));
         
@@ -342,7 +354,7 @@ class VatCar_ATC_Booking {
         $has_position = $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM $positions_table WHERE authorization_id = %d AND callsign = %s",
             $auth->id,
-            sanitize_text_field($callsign)
+            $callsign
         ));
         
         return (int)$has_position > 0;
@@ -419,7 +431,10 @@ class VatCar_ATC_Booking {
                     return new WP_Error('invalid_division', 'You must be in the VATCAR division to book a position.');
                 }
             }
-            $required_subdivision = get_option('vatcar_fir_subdivision', 'CUR');
+            $required_subdivision = vatcar_detect_subdivision();
+            if (empty($required_subdivision)) {
+                return new WP_Error('site_config_error', 'This site is not configured or recognized within the plugin. Please create a GitHub issue at https://github.com/savmon120/curacao-controller-bookings-plugin/issues');
+            }
             if (empty($controller_data['subdivision_id']) || $controller_data['subdivision_id'] !== $required_subdivision) {
                 // Check if they have solo cert for this position
                 if ($is_authorized_for_position) {
@@ -467,14 +482,14 @@ class VatCar_ATC_Booking {
             return new WP_Error('api_error', 'Failed to reach VATSIM API.');
         }
 
-        $code    = wp_remote_retrieve_response_code($response);
-        $bodyRaw = wp_remote_retrieve_body($response);
-        $body    = json_decode($bodyRaw, true);
+        $code     = wp_remote_retrieve_response_code($response);
+        $body_raw = wp_remote_retrieve_body($response);
+        $body     = json_decode($body_raw, true);
 
         if ($code !== 201 || !is_array($body) || empty($body['id'])) {
             $msg = (is_array($body) && isset($body['message']))
                 ? $body['message']
-                : 'Unexpected response (' . $code . '): ' . $bodyRaw;
+                : 'Unexpected response (' . $code . '): ' . $body_raw;
             return new WP_Error('api_error', $msg);
         }
 
@@ -544,7 +559,10 @@ class VatCar_ATC_Booking {
                         return new WP_Error('invalid_division', 'You must be in the VATCAR division to book ATC positions.');
                     }
                 }
-                $required_subdivision = get_option('vatcar_fir_subdivision', 'CUR');
+                $required_subdivision = vatcar_detect_subdivision();
+                if (empty($required_subdivision)) {
+                    return new WP_Error('site_config_error', 'This site is not configured or recognized within the plugin. Please create a GitHub issue at https://github.com/savmon120/curacao-controller-bookings-plugin/issues');
+                }
                 if (empty($controller_data['subdivision_id']) || $controller_data['subdivision_id'] !== $required_subdivision) {
                     // Check if they have solo cert for this position
                     if ($is_authorized_for_position) {
@@ -606,14 +624,14 @@ class VatCar_ATC_Booking {
             return new WP_Error('api_error', 'Failed to reach VATSIM API.');
         }
 
-        $code    = wp_remote_retrieve_response_code($response);
-        $bodyRaw = wp_remote_retrieve_body($response);
-        $body    = json_decode($bodyRaw, true);
+        $code     = wp_remote_retrieve_response_code($response);
+        $body_raw = wp_remote_retrieve_body($response);
+        $body     = json_decode($body_raw, true);
 
         if ($code !== 200) {
             $msg = (is_array($body) && isset($body['message']))
                 ? $body['message']
-                : 'Update failed (' . $code . '): ' . $bodyRaw;
+                : 'Update failed (' . $code . '): ' . $body_raw;
             return new WP_Error('api_error', $msg);
         }
 
@@ -661,14 +679,14 @@ class VatCar_ATC_Booking {
             return new WP_Error('api_error', 'Failed to reach VATSIM API.');
         }
 
-        $code    = wp_remote_retrieve_response_code($response);
-        $bodyRaw = wp_remote_retrieve_body($response);
-        $body    = json_decode($bodyRaw, true);
+        $code     = wp_remote_retrieve_response_code($response);
+        $body_raw = wp_remote_retrieve_body($response);
+        $body     = json_decode($body_raw, true);
 
         if ($code !== 204 && $code !== 200) {
             $msg = (is_array($body) && isset($body['message']))
                 ? $body['message']
-                : 'Delete failed (' . $code . '): ' . $bodyRaw;
+                : 'Delete failed (' . $code . '): ' . $body_raw;
             return new WP_Error('api_error', $msg);
         }
 
@@ -766,8 +784,9 @@ class VatCar_ATC_Booking {
         if (function_exists('vatsim_connect_get_cid')) {
             return vatsim_connect_get_cid(); // production VATSIM Connect
         }
-        if (isset($_SERVER['HTTP_HOST']) && strpos($_SERVER['HTTP_HOST'], 'curacao.vatcar.local') !== false) {
-            return '1483805'; // static CID for local testing; adjust as needed
+        $host = isset($_SERVER['HTTP_HOST']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST'])) : '';
+        if (strpos($host, 'curacao.vatcar.local') !== false) {
+            return '1288763'; // static CID for local testing; adjust as needed
         }
         return (string)get_current_user_id(); // last fallback (numeric user id)
     }
@@ -777,12 +796,13 @@ class VatCar_ATC_Booking {
      */
     public static function get_controller_data($cid) {
         // For local testing, return mock data
-        if (isset($_SERVER['HTTP_HOST']) && strpos($_SERVER['HTTP_HOST'], 'curacao.vatcar.local') !== false) {
+        $host = isset($_SERVER['HTTP_HOST']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST'])) : '';
+        if (strpos($host, 'curacao.vatcar.local') !== false) {
             return [
                 'id' => (int)$cid,
                 'division_id' => 'CAR',
                 'subdivision_id' => 'CUR', // Changed from CUR to test whitelist
-                'rating' => 3, // S2 for testing
+                'rating' => 2, // S1 for testing
             ];
         }
 

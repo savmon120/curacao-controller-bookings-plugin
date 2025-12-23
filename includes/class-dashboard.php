@@ -1,4 +1,8 @@
 <?php
+if (!defined('ABSPATH')) {
+    exit; // Exit if accessed directly
+}
+
 /**
  * FIR Staff Dashboard for managing bookings and viewing compliance status
  */
@@ -15,7 +19,13 @@ class VatCar_ATC_Dashboard {
 
         global $wpdb;
         $table = $wpdb->prefix . 'atc_bookings';
-        $subdivision = get_option('vatcar_fir_subdivision', 'CUR');
+        $subdivision = vatcar_detect_subdivision();
+        
+        if (empty($subdivision)) {
+            echo '<div class="notice notice-error"><p><strong>Error:</strong> This site is not configured or recognized within the plugin. Please create a <a href="https://github.com/savmon120/curacao-controller-bookings-plugin/issues" target="_blank">GitHub issue</a>.</p></div>';
+            echo '</div>';
+            return;
+        }
 
         // Get all bookings for this FIR
         $bookings = $wpdb->get_results($wpdb->prepare(

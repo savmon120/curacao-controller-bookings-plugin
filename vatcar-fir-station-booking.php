@@ -73,7 +73,7 @@ add_shortcode('vatcar_atc_booking', ['VatCar_ATC_Booking', 'render_form']);
 add_shortcode('vatcar_atc_schedule', ['VatCar_ATC_Schedule', 'render_table']);
 
 function vatcar_detect_subdivision() {
-    $host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '';
+    $host = isset($_SERVER['HTTP_HOST']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST'])) : '';
     if (strpos($host, 'curacao.vatcar.net') !== false || strpos($host, 'curacao.vatcar.local') !== false) {
         return 'CUR';
     }
@@ -119,7 +119,12 @@ function vatcar_ajax_add_controller() {
     $cid = sanitize_text_field($_POST['cid'] ?? '');
     $notes = sanitize_textarea_field($_POST['notes'] ?? '');
     $expires = sanitize_text_field($_POST['expires'] ?? '');
-    $authorization_type = sanitize_text_field($_POST['authorization_type'] ?? 'visitor');
+    
+    // Validate authorization type against whitelist
+    $authorization_type_raw = sanitize_text_field($_POST['authorization_type'] ?? 'visitor');
+    $allowed_types = ['visitor', 'solo'];
+    $authorization_type = in_array($authorization_type_raw, $allowed_types, true) ? $authorization_type_raw : 'visitor';
+    
     $positions = isset($_POST['positions']) && is_array($_POST['positions']) 
         ? array_map('sanitize_text_field', $_POST['positions']) 
         : [];
@@ -128,10 +133,15 @@ function vatcar_ajax_add_controller() {
         wp_send_json_error('CID is required');
     }
 
-    // Convert HTML5 datetime-local format to MySQL datetime
+    // Convert HTML5 datetime-local format to MySQL datetime with validation
     $expires_at = null;
     if (!empty($expires)) {
-        $expires_at = gmdate('Y-m-d H:i:s', strtotime($expires));
+        $timestamp = strtotime($expires);
+        if ($timestamp === false || $timestamp < 0) {
+            wp_send_json_error('Invalid expiration date format');
+            return;
+        }
+        $expires_at = gmdate('Y-m-d H:i:s', $timestamp);
     }
 
     $result = VatCar_ATC_Booking::add_to_whitelist($cid, $notes, $expires_at, $authorization_type);
@@ -195,10 +205,15 @@ function vatcar_ajax_renew_controller() {
         wp_send_json_error('CID is required');
     }
 
-    // Convert HTML5 datetime-local format to MySQL datetime, or set NULL for permanent
+    // Convert HTML5 datetime-local format to MySQL datetime with validation, or set NULL for permanent
     $expires_at = null;
     if (!empty($expires)) {
-        $expires_at = gmdate('Y-m-d H:i:s', strtotime($expires));
+        $timestamp = strtotime($expires);
+        if ($timestamp === false || $timestamp < 0) {
+            wp_send_json_error('Invalid expiration date format');
+            return;
+        }
+        $expires_at = gmdate('Y-m-d H:i:s', $timestamp);
     }
 
     $result = VatCar_ATC_Booking::update_whitelist_expiration($cid, $expires_at);
@@ -438,7 +453,7 @@ add_action('admin_init', function() {
         'API Key',
         function() {
             $value = esc_attr(get_option('vatcar_vatsim_api_key', ''));
-            echo '<input type="text" name="vatcar_vatsim_api_key" value="' . $value . '" class="regular-text" />';
+            echo '<input type="text" name="vatcar_vatsim_api_key" value="' . esc_attr($value) . '" class="regular-text" />';
         },
         'vatcar-atc-settings',
         'vatcar_atc_main'
@@ -601,9 +616,9 @@ function vatcar_atc_whitelist_page() {
                         ?>
                         <tr data-cid="<?php echo esc_attr($entry->cid); ?>" style="<?php echo esc_attr($row_style); ?>">
                             <td><strong><?php echo esc_html($entry->cid); ?></strong></td>
-                            <td><?php echo $name_display; ?></td>
-                            <td><?php echo $type_display; ?></td>
-                            <td style="font-size: 0.9em;"><?php echo $positions_display; ?></td>
+                            <td><?php echo esc_html($name_display); ?></td>
+                            <td><?php echo wp_kses_post($type_display); ?></td>
+                            <td style="font-size: 0.9em;"><?php echo wp_kses_post($positions_display); ?></td>
                             <td><?php echo esc_html($entry->notes); ?></td>
                             <td><?php echo esc_html($added_by_name); ?></td>
                             <td><?php echo esc_html(date('Y-m-d H:i', strtotime($entry->date_added))); ?></td>
