@@ -80,6 +80,9 @@ function vatcar_detect_subdivision() {
     if (strpos($host, 'piarco.vatcar.net') !== false) {
         return 'PIA';
     }
+    if (strpos($host, 'http://curacao-fir-vatcar.local') !== false) {
+        return 'CUR';
+    }
 
     // Add more mappings as needed
     return ''; // Default
@@ -92,6 +95,15 @@ function vatcar_get_subdivision_name($code) {
         // Add more as needed
     ];
     return $names[$code] ?? $code; // Fallback to code if not found
+}
+
+function vatcar_unrecognised_site_error($as_html = true) {
+    $message = 'This site is not configured or recognised within the plugin. Please create a';
+    
+    if ($as_html) {
+        return '<p><strong>Error:</strong> ' . esc_html($message) . ' <a href="https://github.com/savmon120/curacao-controller-bookings-plugin/issues" target="_blank">GitHub issue</a>.</p>';
+    }
+    return $message;
 }
 
 // AJAX handlers
@@ -403,6 +415,26 @@ add_action('init', function() {
     }
 });
 
+// Centralized subdivision detection check for admin pages
+function vatcar_admin_subdivision_check() {
+    $subdivision = vatcar_detect_subdivision();
+    return !empty($subdivision);
+}
+
+// Display admin notice if site is not recognised
+add_action('admin_notices', function() {
+    // Only show on our plugin's admin pages
+    $screen = get_current_screen();
+    if ($screen && strpos($screen->id, 'vatcar-atc') !== false) {
+        if (!vatcar_admin_subdivision_check()) {
+            ?>
+            <div class="notice notice-error">
+                <?php echo vatcar_unrecognised_site_error(true); ?>
+            </div>
+            <?php
+        }
+    }
+});
 
 // Admin settings page and dashboard
 add_action('admin_menu', function() {
@@ -461,6 +493,11 @@ add_action('admin_init', function() {
 });
 
 function vatcar_atc_settings_page() {
+    // Prevent access if site not recognised
+    if (!vatcar_admin_subdivision_check()) {
+        echo '<div class="wrap"><h1>FIR ATC Bookings Settings</h1></div>';
+        return;
+    }
     ?>
     <div class="wrap">
         <h1>FIR ATC Bookings Settings</h1>
@@ -486,6 +523,12 @@ function vatcar_atc_settings_page() {
 }
 
 function vatcar_atc_whitelist_page() {
+    // Prevent access if site not recognised
+    if (!vatcar_admin_subdivision_check()) {
+        echo '<div class="wrap"><h1>Controller Whitelist</h1></div>';
+        return;
+    }
+    
     // Positions from booking form - these are the actual stations controllers can book
     $positions = [
         'TNCA_GND' => 'Aruba Ramp (Queen Beatrix)',

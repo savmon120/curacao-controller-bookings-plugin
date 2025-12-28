@@ -8,7 +8,7 @@ class VatCar_ATC_Schedule {
         // Detect subdivision from hostname
         $subdivision = vatcar_detect_subdivision();
         if (empty($subdivision)) {
-            return '<p style="color:red; font-weight:bold;">Error: This site is not configured or recognized within the plugin. Please create a <a href="https://github.com/savmon120/curacao-controller-bookings-plugin/issues" target="_blank">GitHub issue</a>.</p>';
+            return '<p style="color:red; font-weight:bold;">' . vatcar_unrecognised_site_error(true) . '</p>';
         }
 
         // Fetch from VATSIM API

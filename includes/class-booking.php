@@ -51,7 +51,7 @@ class VatCar_ATC_Booking {
                 // Detect subdivision from hostname
                 $subdivision = vatcar_detect_subdivision();
                 if (empty($subdivision)) {
-                    echo '<p style="color:red;">Error: This site is not configured or recognized within the plugin. Please create a <a href="https://github.com/savmon120/curacao-controller-bookings-plugin/issues" target="_blank">GitHub issue</a>.</p>';
+                    echo '<p style="color:red;">' . vatcar_unrecognised_site_error(true) . '</p>';
                     return ob_get_clean();
                 }
 
@@ -433,7 +433,7 @@ class VatCar_ATC_Booking {
             }
             $required_subdivision = vatcar_detect_subdivision();
             if (empty($required_subdivision)) {
-                return new WP_Error('site_config_error', 'This site is not configured or recognized within the plugin. Please create a GitHub issue at https://github.com/savmon120/curacao-controller-bookings-plugin/issues');
+                return new WP_Error('site_config_error', vatcar_unrecognised_site_error(false));
             }
             if (empty($controller_data['subdivision_id']) || $controller_data['subdivision_id'] !== $required_subdivision) {
                 // Check if they have solo cert for this position
@@ -561,7 +561,7 @@ class VatCar_ATC_Booking {
                 }
                 $required_subdivision = vatcar_detect_subdivision();
                 if (empty($required_subdivision)) {
-                    return new WP_Error('site_config_error', 'This site is not configured or recognized within the plugin. Please create a GitHub issue at https://github.com/savmon120/curacao-controller-bookings-plugin/issues');
+                    return new WP_Error('site_config_error', vatcar_unrecognised_site_error(false));
                 }
                 if (empty($controller_data['subdivision_id']) || $controller_data['subdivision_id'] !== $required_subdivision) {
                     // Check if they have solo cert for this position

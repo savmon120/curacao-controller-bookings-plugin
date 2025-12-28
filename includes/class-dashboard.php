@@ -17,15 +17,15 @@ class VatCar_ATC_Dashboard {
             wp_die('Unauthorized');
         }
 
+        // Prevent access if site not recognised
+        if (!vatcar_admin_subdivision_check()) {
+            echo '<div class="wrap"><h1>ATC Bookings Dashboard</h1></div>';
+            return;
+        }
+        
         global $wpdb;
         $table = $wpdb->prefix . 'atc_bookings';
         $subdivision = vatcar_detect_subdivision();
-        
-        if (empty($subdivision)) {
-            echo '<div class="notice notice-error"><p><strong>Error:</strong> This site is not configured or recognized within the plugin. Please create a <a href="https://github.com/savmon120/curacao-controller-bookings-plugin/issues" target="_blank">GitHub issue</a>.</p></div>';
-            echo '</div>';
-            return;
-        }
 
         // Get all bookings for this FIR
         $bookings = $wpdb->get_results($wpdb->prepare(
