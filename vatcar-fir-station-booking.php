@@ -5,7 +5,7 @@
  * Version: 1.2.1
  * Author: Sav Monzac
  * GitHub Plugin URI: savmon120/curacao-controller-bookings-plugin
- * Primary Branch: main
+ * Primary Branch: dev
  */
 
 if (!defined('ABSPATH')) exit;
