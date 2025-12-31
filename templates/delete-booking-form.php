@@ -143,9 +143,19 @@ document.getElementById('deleteBookingForm').addEventListener('submit', function
 
         // Remove row from table
 
-        const row = document.querySelector(`tr[data-id="${formData.get('booking_id')}"]`);
+        const bookingId = formData.get('booking_id');
 
-        if (row) row.remove();
+        const row = document.querySelector(`tr[data-id="${bookingId}"]`);
+
+        if (row) {
+
+          row.remove();
+
+          // Dispatch event for dashboard to update
+
+          window.dispatchEvent(new CustomEvent('bookingDeleted', { detail: { bookingId } }));
+
+        }
 
         setTimeout(() => {
 
