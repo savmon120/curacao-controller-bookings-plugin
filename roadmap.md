@@ -2,49 +2,57 @@
 
 ## Completed Features
 [x] Validating against controller division and rating to allow booking
-[x] Manage dashboard bookings as FIR staff
+[x] Manage dashboard bookings as FIR staff (admin dashboard)
 [x] Remove bookings after end date (now: preserve for compliance, filter from frontend)
-[x] Use vatsim data api to validate controller logged on for their booking
-[x] Controller name on booking using wordpress name
+[x] Use VATSIM data API to validate controller logged on for their booking
+[x] Controller name on booking using WordPress name
 [x] Whitelisting visitors and solo certs to enable booking of stations
 [x] Position-specific authorization for whitelisted controllers
 [x] Expiration dates and renewal for whitelist entries
 [x] Auto-populate controller names from WordPress accounts
+[x] **Position-based rating restrictions** - Graduated rating requirements per position type (S1=GND/RMP/DEL, S2=TWR, S3=APP/DEP, C1=CTR/FSS)
+[x] **Controller personal dashboard** - View personal bookings, compliance statistics, authorization status ([vatcar_my_bookings] shortcode)
+[x] **Controller widget** - Sidebar widget showing next booking and quick stats
+[x] **Compliance history tracking** - Automatic 15-minute checks for on-time, early, late, and no-show status
+[x] **Real-time login status** - Live VATSIM data feed integration (15-second refresh) for dashboard status display
 
 ## Planned Features
 
 ### High Priority
-[] Filter booking form dropdown to show only authorised positions for whitelisted controllers
-[] Booking conflict warnings (show existing bookings when selecting time/position)
-[] Set FIR in settings and fetch stations automatically (investigate VATSIM API capability)
-[] **Position-based rating restrictions** - Implement graduated rating requirements per position type:
-   - S1 (rating 2): GND/RMP positions only
-   - S2 (rating 3): + DEL, TWR positions
-   - S3 (rating 4): + APP/DEP positions  
-   - C1+ (rating 5+): + CTR/FSS positions
-   - Solo certifications bypass rating checks for certified positions only
-   - Update validation logic in save_booking() and update_booking()
-   - Add position tier mapping function (get_position_required_rating($callsign))
-   - Update error messages to show required rating for attempted position
+[] **Filter booking form dropdown** - Show only authorized positions for whitelisted controllers in dropdown
+[] **Booking conflict warnings** - Display existing bookings when selecting time/position (real-time conflict detection)
+[] **Automatic station discovery** - Set FIR in settings and fetch stations automatically (investigate VATSIM API capability)
+[] **Enhanced mobile responsiveness** - Optimize booking form and dashboard layouts for mobile devices
 
 ### Medium Priority
-[] Reminder emails / discord pings for upcoming bookings
-[] Controller dashboard (personal bookings, stats, compliance summary)
-[] Log all whitelisted controller entries for audit trail
-[] Booking templates (save common booking patterns, e.g., "Friday evening TNCC_TWR")
+[] **Reminder notifications** - Email/Discord pings for upcoming bookings (configurable lead time)
+[] **Audit trail logging** - Track all whitelist controller entry additions, removals, and renewals
+[] **Booking templates** - Save common booking patterns (e.g., "Friday evening TNCC_TWR 2000-2300z")
+[] **Edit booking from dashboard** - Allow controllers to edit their own bookings directly from personal dashboard (currently redirect to form)
+
+### UX Improvements (Post v1.3.0)
+[] **Booking form as modal** - Option to open booking form in modal instead of page redirect
+   - Pros: No context switching, instant updates, modern UX
+   - Cons: Form complexity in modal, mobile constraints, requires AJAX conversion
+   - Consider as user preference or feature flag after v1.3.0 feedback
+   
+[] **Post-booking redirect options** - Configurable redirect destination after creating booking
+   - Current: Redirects to public schedule (operational awareness)
+   - Option A: Redirect to personal dashboard (immediate confirmation)
+   - Option B: Stay on public schedule with success banner + "View My Dashboard" link
+   - Long-term: User preference "After booking, show me: [Public Schedule] [My Dashboard]"
 
 ### Low Priority / Future Consideration
-[] Email notifications for booking confirmations and changes
-[] Discord webhook integration for new bookings and compliance alerts
-[] Booking statistics dashboard (busiest times, most popular positions)
-[] Controller performance reports (on-time percentage, booking frequency)
-[] Mobile-responsive improvements for booking form
+[] **Email confirmations** - Send booking confirmation emails to controllers
+[] **Discord webhook integration** - Post new bookings and compliance alerts to Discord channels
+[] **FIR statistics dashboard** - Busiest times, most popular positions, booking frequency trends
+[] **Controller performance reports** - Detailed on-time percentage reports, booking consistency metrics
+[] **Calendar grid view** - Month/week calendar view with visual timeline for bookings
 
 ## Feature Requests / Ideas
-[] Recurring bookings (e.g., every Friday 1800-2200z)
-[] Booking delegation (allow admins to book on behalf of controllers)
-[] Position availability forecast (show busy/quiet times)
-[] Integration with live traffic
-[] Badge/achievement system for consistent controllers
-[] Display bookings as calendar view (month/week grid with visual timeline)
-[] Advanced calendar features (drag-to-book, visual conflict detection)
+[] **Recurring bookings** - Set up repeating bookings (e.g., every Friday 1800-2200z for a month)
+[] **Admin booking delegation** - Allow FIR staff to book on behalf of controllers
+[] **Position availability forecast** - Show busy/quiet times based on historical data
+[] **Live traffic integration** - Display current network traffic alongside scheduled bookings
+[] **Achievement badges** - Recognition system for consistent, reliable controllers
+[] **Advanced calendar features** - Drag-to-book interface, visual conflict detection, multi-day view

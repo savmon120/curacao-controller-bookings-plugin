@@ -36,6 +36,8 @@ require_once plugin_dir_path(__FILE__) . 'includes/class-booking.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-schedule.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-validation.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-dashboard.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-controller-dashboard.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-controller-widget.php';
 
 // Add custom cron schedule for 15-minute intervals
 add_filter('cron_schedules', function($schedules) {
@@ -145,6 +147,7 @@ add_filter('cron_schedules', function($schedules) {
 // Shortcodes
 add_shortcode('vatcar_atc_booking', ['VatCar_ATC_Booking', 'render_form']);
 add_shortcode('vatcar_atc_schedule', ['VatCar_ATC_Schedule', 'render_table']);
+add_shortcode('vatcar_my_bookings', ['VatCar_Controller_Dashboard', 'render_dashboard']);
 
 function vatcar_detect_subdivision() {
     $host = isset($_SERVER['HTTP_HOST']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST'])) : '';
@@ -337,7 +340,7 @@ add_action('wp_enqueue_scripts', function() {
         'VatCar-atc-bookings',
         plugin_dir_url(__FILE__) . 'assets/css/VatCar-atc-bookings.css',
         [],
-        '1.0'
+        '1.3.0'
     );
 }, 20);
 
@@ -358,7 +361,7 @@ add_action('admin_enqueue_scripts', function($hook) {
             'VatCar-atc-bookings-admin',
             plugin_dir_url(__FILE__) . 'assets/css/VatCar-atc-bookings.css',
             [],
-            '1.0'
+            '1.3.0'
         );
     }
 });
