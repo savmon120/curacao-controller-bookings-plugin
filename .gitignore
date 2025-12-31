@@ -1,0 +1,19 @@
+# Documentation files that should not be committed
+FIXES_COMPLETED.md
+GENERALIZATION_ASSESSMENT.md
+SECURITY_AUDIT.md
+SECURITY_FIXES.md
+SECURITY_QUICK_REF.md
+SECURITY_SUMMARY.md
+USER_JOURNEYS.md
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
