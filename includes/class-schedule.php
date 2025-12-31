@@ -384,9 +384,12 @@ class VatCar_ATC_Schedule {
                 $first_name = $name_parts[0];
             }
 
-            echo '<td style="font-size:18px;">'
+            // Display TNCA_GND as TNCA_RMP
+            $display_callsign = ($booking->callsign === 'TNCA_GND') ? 'TNCA_RMP' : $booking->callsign;
+
+            echo '<td style="font-size:18px;"'
                . '<span style="font-size:15px; color:#555;">' . esc_html($first_name) . '</span><br>'
-               . '<b>' . esc_html($booking->callsign) . '</b>'
+               . '<b>' . esc_html($display_callsign) . '</b>'
                . '</td>';
 
             // Start/End cells (raw UTC stored, JS renders either UTC or Local)

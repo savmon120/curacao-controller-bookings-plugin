@@ -2,10 +2,10 @@
 /**
  * Plugin Name: VATCAR FIR Station Booking
  * Description: ATC booking system for WordPress, integrating with VATSIM ATC Bookings API.
- * Version: 1.2.0
+ * Version: 1.3.0
  * Author: Sav Monzac
  * GitHub Plugin URI: savmon120/curacao-controller-bookings-plugin
- * Primary Branch: main
+ * Primary Branch: dev
  */
 
 if (!defined('ABSPATH')) exit;
@@ -18,9 +18,9 @@ if (!defined('VATCAR_VATSIM_API_KEY')) {
     define('VATCAR_VATSIM_API_KEY', get_option('vatcar_vatsim_api_key', ''));
 }
 
-// Debug toggle: set true in dev, false in production
-if (!defined('VATCAR_ATC_DEBUG')) {
-    define('VATCAR_ATC_DEBUG', false); // flip to false in production
+// Debug helper function - checks WP option instead of constant
+function vatcar_atc_is_debug_enabled() {
+    return (bool) get_option('vatcar_atc_debug_mode', false);
 }
 
 function vatcar_vatsim_headers() {
@@ -36,6 +36,78 @@ require_once plugin_dir_path(__FILE__) . 'includes/class-booking.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-schedule.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-validation.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-dashboard.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-controller-dashboard.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-controller-widget.php';
+
+// Add custom cron schedule for 15-minute intervals
+add_filter('cron_schedules', function($schedules) {
+    if (!isset($schedules['every_15_minutes'])) {
+        $schedules['every_15_minutes'] = [
+            'interval' => 15 * 60,
+            'display' => __('Every 15 Minutes')
+        ];
+    }
+    return $schedules;
+});
+
+// Automatic compliance checking function
+function vatcar_check_booking_compliance() {
+    global $wpdb;
+    $table = $wpdb->prefix . 'atc_bookings';
+    $now = current_time('mysql');
+    
+    // Get bookings that started within last 30 minutes or start within next 30 minutes
+    // This ensures we catch bookings at their start time
+    $start_window_past = gmdate('Y-m-d H:i:s', strtotime($now) - (30 * 60));
+    $start_window_future = gmdate('Y-m-d H:i:s', strtotime($now) + (30 * 60));
+    
+    $bookings = $wpdb->get_results($wpdb->prepare(
+        "SELECT * FROM $table WHERE start >= %s AND start <= %s AND cid IS NOT NULL AND cid != ''",
+        $start_window_past,
+        $start_window_future
+    ));
+    
+    if (empty($bookings)) {
+        return; // No bookings to check
+    }
+    
+    foreach ($bookings as $booking) {
+        // Check if we've already recorded status for this booking in the last 15 minutes
+        $history_table = $wpdb->prefix . 'atc_booking_compliance';
+        $recent_check = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $history_table WHERE booking_id = %d AND checked_at > %s",
+            $booking->id,
+            gmdate('Y-m-d H:i:s', strtotime($now) - (15 * 60))
+        ));
+        
+        if ((int)$recent_check > 0) {
+            continue; // Already checked recently, skip
+        }
+        
+        // Check compliance status
+        $status = VatCar_ATC_Booking::is_controller_logged_in_on_time(
+            $booking->cid,
+            $booking->callsign,
+            $booking->start
+        );
+        
+        // Only record meaningful statuses (not 'not_logged_in' before booking time)
+        $booking_time = strtotime($booking->start);
+        $current_time = time();
+        
+        // Record if:
+        // 1. Booking time has passed (to catch no_shows, late, on_time)
+        // 2. Controller is already logged in early
+        if ($current_time >= $booking_time || $status === 'early' || $status === 'on_time') {
+            VatCar_ATC_Booking::record_compliance_check(
+                $booking->id,
+                $booking->cid,
+                $booking->callsign,
+                $status
+            );
+        }
+    }
+}
 
 // Cleanup expired bookings function
 function vatcar_cleanup_expired_bookings() {
@@ -44,20 +116,24 @@ function vatcar_cleanup_expired_bookings() {
     // This function is kept for backward compatibility with WP Cron
 }
 
-// Schedule cleanup on activation
+// Schedule cron jobs on activation
 register_activation_hook(__FILE__, function() {
     if (!wp_next_scheduled('vatcar_cleanup_expired_bookings')) {
         wp_schedule_event(time(), 'daily', 'vatcar_cleanup_expired_bookings');
+    }
+    if (!wp_next_scheduled('vatcar_check_booking_compliance')) {
+        wp_schedule_event(time(), 'every_15_minutes', 'vatcar_check_booking_compliance');
     }
 });
 
 // Unschedule on deactivation
 register_deactivation_hook(__FILE__, function() {
     wp_clear_scheduled_hook('vatcar_cleanup_expired_bookings');
+    wp_clear_scheduled_hook('vatcar_check_booking_compliance');
 });
 
-// Hook the cleanup function
 add_action('vatcar_cleanup_expired_bookings', 'vatcar_cleanup_expired_bookings');
+add_action('vatcar_check_booking_compliance', 'vatcar_check_booking_compliance');
 
 // Add custom cron schedule for testing
 add_filter('cron_schedules', function($schedules) {
@@ -71,6 +147,7 @@ add_filter('cron_schedules', function($schedules) {
 // Shortcodes
 add_shortcode('vatcar_atc_booking', ['VatCar_ATC_Booking', 'render_form']);
 add_shortcode('vatcar_atc_schedule', ['VatCar_ATC_Schedule', 'render_table']);
+add_shortcode('vatcar_my_bookings', ['VatCar_Controller_Dashboard', 'render_dashboard']);
 
 function vatcar_detect_subdivision() {
     $host = isset($_SERVER['HTTP_HOST']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST'])) : '';
@@ -80,7 +157,7 @@ function vatcar_detect_subdivision() {
     if (strpos($host, 'piarco.vatcar.net') !== false) {
         return 'PIA';
     }
-    if (strpos($host, 'http://curacao-fir-vatcar.local') !== false) {
+    if (strpos($host, 'curacao-fir-vatcar.local') !== false) {
         return 'CUR';
     }
 
@@ -111,6 +188,7 @@ add_action('wp_ajax_update_booking', ['VatCar_ATC_Booking', 'ajax_update_booking
 add_action('wp_ajax_delete_booking', ['VatCar_ATC_Booking', 'ajax_delete_booking']);
 add_action('wp_ajax_vatcar_get_booking_status', ['VatCar_ATC_Dashboard', 'ajax_get_booking_status']);
 add_action('wp_ajax_vatcar_get_compliance_history', ['VatCar_ATC_Dashboard', 'ajax_get_compliance_history']);
+add_action('wp_ajax_vatcar_get_cid_compliance', ['VatCar_ATC_Dashboard', 'ajax_get_cid_compliance']);
 add_action('wp_ajax_add_controller', 'vatcar_ajax_add_controller');
 add_action('wp_ajax_remove_controller', 'vatcar_ajax_remove_controller');
 add_action('wp_ajax_renew_controller', 'vatcar_ajax_renew_controller');
@@ -119,13 +197,14 @@ add_action('wp_ajax_renew_controller', 'vatcar_ajax_renew_controller');
  * AJAX handler: Add controller to whitelist
  */
 function vatcar_ajax_add_controller() {
-    if (!isset($_POST['vatcar_add_controller_nonce']) 
+    // Verify nonce and admin capability
+    if (!isset($_POST['vatcar_add_controller_nonce'])
         || !wp_verify_nonce($_POST['vatcar_add_controller_nonce'], 'vatcar_add_controller')) {
         wp_send_json_error('Security check failed');
     }
-
+    
     if (!current_user_can('manage_options')) {
-        wp_send_json_error('Unauthorized');
+        wp_send_json_error('Insufficient permissions');
     }
 
     $cid = sanitize_text_field($_POST['cid'] ?? '');
@@ -143,6 +222,17 @@ function vatcar_ajax_add_controller() {
 
     if (empty($cid)) {
         wp_send_json_error('CID is required');
+    }
+
+    // Check if CID already has active (non-expired) authorization
+    $existing_entry = VatCar_ATC_Booking::get_whitelist_entry($cid);
+    if ($existing_entry) {
+        wp_send_json_error('Controller already has an active authorization. Remove or wait for expiration before adding a new one.');
+    }
+
+    // Validate expires for solo certifications
+    if ($authorization_type === 'solo' && empty($expires)) {
+        wp_send_json_error('Expiration date is required for solo certifications');
     }
 
     // Convert HTML5 datetime-local format to MySQL datetime with validation
@@ -173,13 +263,14 @@ function vatcar_ajax_add_controller() {
  * AJAX handler: Remove controller from whitelist
  */
 function vatcar_ajax_remove_controller() {
-    if (!isset($_POST['vatcar_remove_controller_nonce']) 
+    // Verify nonce and admin capability
+    if (!isset($_POST['vatcar_remove_controller_nonce'])
         || !wp_verify_nonce($_POST['vatcar_remove_controller_nonce'], 'vatcar_remove_controller')) {
         wp_send_json_error('Security check failed');
     }
-
+    
     if (!current_user_can('manage_options')) {
-        wp_send_json_error('Unauthorized');
+        wp_send_json_error('Insufficient permissions');
     }
 
     $cid = sanitize_text_field($_POST['cid'] ?? '');
@@ -201,9 +292,14 @@ function vatcar_ajax_remove_controller() {
  * AJAX handler: Renew/extend controller whitelist expiration
  */
 function vatcar_ajax_renew_controller() {
-    if (!isset($_POST['vatcar_renew_controller_nonce']) 
+    // Verify nonce and admin capability
+    if (!isset($_POST['vatcar_renew_controller_nonce'])
         || !wp_verify_nonce($_POST['vatcar_renew_controller_nonce'], 'vatcar_renew_controller')) {
         wp_send_json_error('Security check failed');
+    }
+    
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions');
     }
 
     if (!current_user_can('manage_options')) {
@@ -244,7 +340,7 @@ add_action('wp_enqueue_scripts', function() {
         'VatCar-atc-bookings',
         plugin_dir_url(__FILE__) . 'assets/css/VatCar-atc-bookings.css',
         [],
-        '1.0'
+        '1.3.0'
     );
 }, 20);
 
@@ -265,7 +361,7 @@ add_action('admin_enqueue_scripts', function($hook) {
             'VatCar-atc-bookings-admin',
             plugin_dir_url(__FILE__) . 'assets/css/VatCar-atc-bookings.css',
             [],
-            '1.0'
+            '1.3.0'
         );
     }
 });
@@ -378,12 +474,72 @@ register_activation_hook(__FILE__, function() {
     }
 });
 
+/**
+ * Get station list from settings
+ * @return array Sorted array of station callsigns (ordered by position type)
+ */
+function vatcar_generate_station_list() {
+    $default = "TNCA_GND\nTNCA_TWR\nTNCA_APP\nTNCC_TWR\nTNCB_TWR\nTNCF_APP\nTNCF_CTR\nTNCM_DEL\nTNCM_TWR\nTNCM_APP\nTQPF_TWR";
+    $stations_setting = get_option('vatcar_stations', $default);
+    
+    // Parse line-separated list
+    $stations = [];
+    $lines = preg_split('/\r\n|\r|\n/', $stations_setting);
+    
+    foreach ($lines as $line) {
+        $station = trim($line);
+        if (!empty($station)) {
+            $stations[] = strtoupper($station);
+        }
+    }
+    
+    // Remove duplicates
+    $stations = array_unique($stations);
+    
+    // Sort by airport prefix first, then by position type within each airport
+    usort($stations, function($a, $b) {
+        // Extract airport prefix (everything before the underscore)
+        $prefix_a = strpos($a, '_') !== false ? substr($a, 0, strpos($a, '_')) : $a;
+        $prefix_b = strpos($b, '_') !== false ? substr($b, 0, strpos($b, '_')) : $b;
+        
+        // If different airports, sort alphabetically by airport
+        if ($prefix_a !== $prefix_b) {
+            return strcmp($prefix_a, $prefix_b);
+        }
+        
+        // Same airport - sort by position type
+        $get_priority = function($callsign) {
+            if (preg_match('/_DEL$/', $callsign)) return 1;
+            if (preg_match('/_GND$/', $callsign)) return 2;
+            if (preg_match('/_RMP$/', $callsign)) return 2; // Same as GND
+            if (preg_match('/_TWR$/', $callsign)) return 3;
+            if (preg_match('/_APP$/', $callsign)) return 4;
+            if (preg_match('/_DEP$/', $callsign)) return 4; // Same as APP
+            if (preg_match('/_CTR$/', $callsign)) return 5;
+            if (preg_match('/_FSS$/', $callsign)) return 5; // Same as CTR
+            return 99; // Unknown positions go to end
+        };
+        
+        $priority_a = $get_priority($a);
+        $priority_b = $get_priority($b);
+        
+        // If same priority within same airport, sort alphabetically
+        if ($priority_a === $priority_b) {
+            return strcmp($a, $b);
+        }
+        
+        return $priority_a - $priority_b;
+    });
+    
+    return $stations;
+}
+
 // Diagnostic endpoint
 // Diagnostic endpoint (restricted)
 add_action('init', function() {
     if (isset($_GET['vatcar_atc_diag']) && $_GET['vatcar_atc_diag'] === '1') {
         // Only allow if debug mode is enabled AND user is an admin
-        if (!(defined('VATCAR_ATC_DEBUG') && VATCAR_ATC_DEBUG && current_user_can('manage_options'))) {
+        if (!(vatcar_atc_is_debug_enabled() && current_user_can('manage_options'))) {
             wp_die('Unauthorized');
         }
 
@@ -470,6 +626,8 @@ add_action('admin_menu', function() {
 add_action('admin_init', function() {
     register_setting('vatcar_atc_settings', 'vatcar_vatsim_api_key');
     register_setting('vatcar_atc_settings', 'vatcar_fir_subdivision');
+    register_setting('vatcar_atc_settings', 'vatcar_stations');
+    register_setting('vatcar_atc_settings', 'vatcar_atc_debug_mode');
 
     add_settings_section(
         'vatcar_atc_main',
@@ -485,10 +643,54 @@ add_action('admin_init', function() {
         'API Key',
         function() {
             $value = esc_attr(get_option('vatcar_vatsim_api_key', ''));
-            echo '<input type="text" name="vatcar_vatsim_api_key" value="' . esc_attr($value) . '" class="regular-text" />';
+            echo '<input type="password" name="vatcar_vatsim_api_key" value="' . esc_attr($value) . '" class="regular-text" placeholder="' . ($value ? '••••••••••••••••' : 'Enter API key') . '" />';
+            echo '<p class="description">API key is masked for security.</p>';
         },
         'vatcar-atc-settings',
         'vatcar_atc_main'
+    );
+
+    add_settings_section(
+        'vatcar_atc_stations',
+        'Station Configuration',
+        function() {
+            echo '<p>Define which ATC positions are available for booking in your FIR.</p>';
+        },
+        'vatcar-atc-settings'
+    );
+
+    add_settings_field(
+        'vatcar_stations',
+        'Available Stations',
+        function() {
+            $default = "TNCA_GND\nTNCA_TWR\nTNCA_APP\nTNCC_TWR\nTNCB_TWR\nTNCF_APP\nTNCF_CTR\nTNCM_DEL\nTNCM_TWR\nTNCM_APP\nTQPF_TWR";
+            $value = get_option('vatcar_stations', $default);
+            echo '<textarea name="vatcar_stations" rows="12" class="large-text code" style="font-family: monospace;">' . esc_textarea($value) . '</textarea>';
+            echo '<p class="description">One station per line (e.g., TNCC_TWR). Stations are automatically sorted by position type on the booking form. Rating requirements: GND/RMP=S1, DEL/TWR=S2, APP/DEP=S3, CTR/FSS=C1.</p>';
+        },
+        'vatcar-atc-settings',
+        'vatcar_atc_stations'
+    );
+
+    add_settings_section(
+        'vatcar_atc_advanced',
+        'Advanced Settings',
+        function() {
+            echo '<p>Debugging and diagnostic options for troubleshooting.</p>';
+        },
+        'vatcar-atc-settings'
+    );
+
+    add_settings_field(
+        'vatcar_atc_debug_mode',
+        'Debug Mode',
+        function() {
+            $enabled = get_option('vatcar_atc_debug_mode', false);
+            echo '<label><input type="checkbox" name="vatcar_atc_debug_mode" value="1" ' . checked(1, $enabled, false) . ' /> Enable debug mode</label>';
+            echo '<p class="description">When enabled, detailed diagnostic information will be shown in error messages (authorization details, API responses, etc.). Only affects plugin errors. <strong>Disable in production.</strong></p>';
+        },
+        'vatcar-atc-settings',
+        'vatcar_atc_advanced'
     );
 });
 
@@ -509,7 +711,7 @@ function vatcar_atc_settings_page() {
             ?>
         </form>
 
-        <?php if (defined('VATCAR_ATC_DEBUG') && VATCAR_ATC_DEBUG && current_user_can('manage_options')): ?>
+        <?php if (vatcar_atc_is_debug_enabled() && current_user_can('manage_options')): ?>
             <hr style="margin: 30px 0;">
             <h2>Diagnostics</h2>
             <p>Run a quick connectivity test against the VATSIM ATC Bookings API.</p>
@@ -571,9 +773,9 @@ function vatcar_atc_whitelist_page() {
                     </td>
                 </tr>
                 <tr>
-                    <th><label>Authorized Positions</label></th>
+                    <th><label id="positions-label">Authorized Positions</label></th>
                     <td>
-                        <p class="description">Select specific positions this controller can book. Leave all unchecked to allow all positions.</p>
+                        <p class="description" id="positions-description">Select specific positions this controller can book. Leave all unchecked to allow all positions.</p>
                         <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; background: #f9f9f9;">
                             <?php foreach ($positions as $callsign => $name): ?>
                                 <label style="display: block; margin: 5px 0;">
@@ -592,15 +794,37 @@ function vatcar_atc_whitelist_page() {
                     </td>
                 </tr>
                 <tr>
-                    <th><label for="controller_expires">Expires (optional)</label></th>
+                    <th><label for="controller_expires">Expires <span id="expires-required" style="color:red;"></span></label></th>
                     <td>
                         <input type="datetime-local" name="controller_expires" id="controller_expires" />
-                        <p class="description">Leave empty for permanent access. Expired entries remain visible but don't grant access.</p>
+                        <p class="description" id="expires-description">Leave empty for permanent access. Expired entries remain visible but don't grant access.</p>
                     </td>
                 </tr>
             </table>
             <button type="submit" class="button button-primary">Add Authorization</button>
         </form>
+
+        <script>
+        jQuery(document).ready(function($) {
+            // Update label and required fields based on authorization type
+            $('#authorization_type').on('change', function() {
+                var type = $(this).val();
+                if (type === 'solo') {
+                    $('#positions-label').text('Authorized Additional Positions');
+                    $('#positions-description').html('<strong>Solo Certification:</strong> Select additional positions beyond their base rating. Controller can still book positions allowed by their base rating (e.g., S1 can book GND/DEL even if not listed).');
+                    $('#expires-required').text('(required)');
+                    $('#controller_expires').prop('required', true);
+                    $('#expires-description').text('Solo certifications must have an expiration date.');
+                } else {
+                    $('#positions-label').text('Authorized Positions');
+                    $('#positions-description').text('Select specific positions this controller can book. Leave all unchecked to allow all positions.');
+                    $('#expires-required').text('');
+                    $('#controller_expires').prop('required', false);
+                    $('#expires-description').text('Leave empty for permanent access. Expired entries remain visible but don\'t grant access.');
+                }
+            }).trigger('change');
+        });
+        </script>
 
         <h3>Current Authorizations</h3>
         <table class="wp-list-table widefat fixed striped" id="controller-whitelist-table">

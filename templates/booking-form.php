@@ -78,19 +78,11 @@ if (!defined('ABSPATH')) {
     <select name="callsign" required>
       <option value="" disabled selected>-- Select --</option>
       <?php
-      $stations = [
-        'TNCA_RMP','TNCA_TWR','TNCA_APP',
-        'TNCC_TWR','TNCB_TWR',
-        'TNCF_APP','TNCF_CTR',
-        'TNCM_DEL','TNCM_TWR','TNCM_APP',
-        'TQPF_TWR'
-      ];
+      $stations = vatcar_generate_station_list();
       foreach($stations as $station){
-        if($station === 'TNCA_RMP'){
-          echo '<option value="TNCA_GND">TNCA_RMP</option>';
-        } else {
-          echo '<option value="'.esc_attr($station).'">'.esc_html($station).'</option>';
-        }
+        // Special case: TNCA_GND displays as TNCA_RMP but stores as TNCA_GND
+        $display = ($station === 'TNCA_GND') ? 'TNCA_RMP' : $station;
+        echo '<option value="'.esc_attr($station).'">'.esc_html($display).'</option>';
       }
       ?>
     </select>

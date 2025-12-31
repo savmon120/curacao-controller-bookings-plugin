@@ -11,18 +11,16 @@ class VatCar_ATC_Booking {
     public static function render_form() {
         ob_start();
 
-        // Require login (except local dev)
-        $host = isset($_SERVER['HTTP_HOST']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST'])) : '';
-        if (strpos($host, 'curacao.vatcar.local') !== false) {
-            if (!is_user_logged_in()) {
-                echo '<p>You must be logged in to book a station.</p>';
-                return ob_get_clean();
-            }
-            $user = wp_get_current_user();
-            if (!in_array('controller', (array) $user->roles, true)) {
-                echo '<p>You do not have permission to book ATC stations.</p>';
-                return ob_get_clean();
-            }
+        // Require login and controller role
+        if (!is_user_logged_in()) {
+            echo '<p>You must be logged in to book a station.</p>';
+            return ob_get_clean();
+        }
+        
+        $user = wp_get_current_user();
+        if (!in_array('controller', (array) $user->roles, true)) {
+            echo '<p>You do not have permission to book ATC stations.</p>';
+            return ob_get_clean();
         }
 
         // Handle form submission (non-AJAX create)
@@ -168,13 +166,33 @@ class VatCar_ATC_Booking {
     }
 
     /**
+     * Get whitelist entry for a CID, including authorization_type.
+     * @param string $cid The controller's CID
+     * @return object|null Whitelist entry with id, authorization_type, etc. or null if not found
+     */
+    public static function get_whitelist_entry($cid) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'atc_controller_whitelist';
+        $now = current_time('mysql');
+        
+        $entry = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table WHERE cid = %s AND (expires_at IS NULL OR expires_at > %s)",
+            $cid,
+            $now
+        ));
+        
+        return $entry;
+    }
+
+    /**
      * Add a CID to the visitor whitelist.
      * If the WordPress user already exists, populate name immediately.
+     * Updates existing entry if one exists (even if expired).
      * @param string $cid The controller's CID
      * @param string $notes Optional notes
      * @param string|null $expires_at Optional expiration datetime
      * @param string $authorization_type 'visitor' or 'solo'
-     * @return int|false The inserted row ID or false on failure
+     * @return int|false The inserted/updated row ID or false on failure
      */
     public static function add_to_whitelist($cid, $notes = '', $expires_at = null, $authorization_type = 'visitor') {
         global $wpdb;
@@ -182,6 +200,12 @@ class VatCar_ATC_Booking {
         
         // Check if WordPress user exists and get their name
         $controller_name = self::get_controller_name($cid);
+        
+        // Check if entry already exists (active or expired)
+        $existing = $wpdb->get_row($wpdb->prepare(
+            "SELECT id FROM $table WHERE cid = %s",
+            $cid
+        ));
         
         $data = [
             'cid' => sanitize_text_field($cid),
@@ -193,15 +217,34 @@ class VatCar_ATC_Booking {
             'authorization_type' => sanitize_text_field($authorization_type),
         ];
         
-        $formats = ['%s', '%s', '%d', '%s', '%s', '%s', '%s'];
-        
-        $result = $wpdb->insert($table, $data, $formats);
-        
-        if ($result === false) {
-            return false;
+        if ($existing) {
+            // Update existing entry
+            $formats = ['%s', '%s', '%d', '%s', '%s', '%s', '%s'];
+            $result = $wpdb->update(
+                $table,
+                $data,
+                ['id' => $existing->id],
+                $formats,
+                ['%d']
+            );
+            
+            if ($result === false) {
+                return false;
+            }
+            
+            return $existing->id;
+        } else {
+            // Insert new entry
+            $formats = ['%s', '%s', '%d', '%s', '%s', '%s', '%s'];
+            
+            $result = $wpdb->insert($table, $data, $formats);
+            
+            if ($result === false) {
+                return false;
+            }
+            
+            return $wpdb->insert_id;
         }
-        
-        return $wpdb->insert_id;
     }
 
     /**
@@ -375,6 +418,34 @@ class VatCar_ATC_Booking {
     }
 
     /**
+     * Get required rating for a position based on callsign suffix.
+     * @param string $callsign The full callsign (e.g., TNCC_TWR)
+     * @return int Required rating (2=S1, 3=S2, 4=S3, 5=C1)
+     */
+    public static function get_position_required_rating($callsign) {
+        // Extract suffix after last underscore
+        $parts = explode('_', $callsign);
+        $suffix = strtoupper(end($parts));
+        
+        // Position tier mapping (matches station generator sort order)
+        $tiers = [
+            // S1 (rating 2) - Delivery, Ground, Ramp
+            'DEL' => 2, 'GND' => 2, 'RMP' => 2,
+            
+            // S2 (rating 3) - Tower
+            'TWR' => 3,
+            
+            // S3 (rating 4) - Approach/Departure
+            'APP' => 4, 'DEP' => 4,
+            
+            // C1 (rating 5) - Center/FSS
+            'CTR' => 5, 'FSS' => 5,
+        ];
+        
+        return $tiers[$suffix] ?? 2; // Default to S1 if unknown suffix
+    }
+
+    /**
      * Create booking via VATSIM API, then cache locally.
      */
     public static function save_booking($data) {
@@ -409,23 +480,25 @@ class VatCar_ATC_Booking {
             return $controller_data;
         }
         
-        // Check if controller is whitelisted - if so, bypass division/subdivision checks
-        $is_whitelisted = self::is_controller_whitelisted($current_cid);
+        // Check whitelist status and type
+        $whitelist_entry = self::get_whitelist_entry($current_cid);
+        $is_visitor = $whitelist_entry && $whitelist_entry->authorization_type === 'visitor';
+        $is_solo_cert = $whitelist_entry && $whitelist_entry->authorization_type === 'solo';
         
         // Check position-specific authorization
         $is_authorized_for_position = self::is_authorized_for_position($current_cid, $data['callsign']);
         
-        if ($is_whitelisted) {
-            // Whitelisted controllers (visitors)
+        if ($is_visitor) {
+            // Visitors can ONLY book their explicitly authorized positions
             if (!$is_authorized_for_position) {
-                return new WP_Error('unauthorized_position', 'You are not authorized to book this position.');
+                return new WP_Error('unauthorized_position', 'You are not authorized to book this position. Visitors may only book explicitly authorized positions.');
             }
             // Bypass division/subdivision checks for visitors
         } else {
-            // Non-whitelisted controllers must be in correct division/subdivision
+            // Non-visitors (including solo cert holders) must be in correct division/subdivision
             if (empty($controller_data['division_id']) || $controller_data['division_id'] !== 'CAR') {
                 // Check if they have solo cert for this position
-                if ($is_authorized_for_position) {
+                if ($is_solo_cert && $is_authorized_for_position) {
                     // Has solo cert - allow it (bypass division check)
                 } else {
                     return new WP_Error('invalid_division', 'You must be in the VATCAR division to book a position.');
@@ -437,7 +510,7 @@ class VatCar_ATC_Booking {
             }
             if (empty($controller_data['subdivision_id']) || $controller_data['subdivision_id'] !== $required_subdivision) {
                 // Check if they have solo cert for this position
-                if ($is_authorized_for_position) {
+                if ($is_solo_cert && $is_authorized_for_position) {
                     // Has solo cert - allow it (bypass subdivision check)
                 } else {
                     $sub_name = vatcar_get_subdivision_name($required_subdivision);
@@ -446,14 +519,39 @@ class VatCar_ATC_Booking {
             }
         }
         
-        // Rating check - can be bypassed by solo certification
-        if ($is_authorized_for_position) {
-            // Solo cert holders bypass rating check for their authorized positions
-        } else {
-            // Standard rating check for non-certified positions
-            if (isset($controller_data['rating']) && intval($controller_data['rating']) < 2) {
-                return new WP_Error('insufficient_rating', 'You must have at least S1 rating to book.');
+        // Rating check - solo cert provides ADDITIONAL positions beyond base rating
+        $required_rating = self::get_position_required_rating($data['callsign']);
+        $controller_rating = isset($controller_data['rating']) ? intval($controller_data['rating']) : 0;
+        
+        // Check if they meet rating requirement OR have authorization for this position
+        $has_sufficient_rating = ($controller_rating >= $required_rating);
+        
+        if (!$has_sufficient_rating && !$is_authorized_for_position) {
+            // They don't have the rating AND they're not authorized for this position
+            $rating_names = [2 => 'S1', 3 => 'S2', 4 => 'S3', 5 => 'C1'];
+            $required_name = $rating_names[$required_rating] ?? 'S1';
+            $position_type = explode('_', $data['callsign']);
+            $position_type = strtoupper(end($position_type));
+            
+            // Debug info for troubleshooting authorization issues
+            $debug_msg = "You need at least {$required_name} rating to book {$position_type} positions.";
+            if (function_exists('vatcar_atc_is_debug_enabled') && vatcar_atc_is_debug_enabled()) {
+                // Get authorized positions for debugging
+                $auth_entry = self::get_whitelist_entry($current_cid);
+                if ($auth_entry) {
+                    $auth_positions = self::get_authorized_positions($auth_entry->id);
+                    $debug_msg .= sprintf(
+                        " [Debug: Type=%s, Authorized positions: %s, Trying to book: %s]",
+                        $auth_entry->authorization_type,
+                        !empty($auth_positions) ? implode(', ', $auth_positions) : 'ALL (none specified)',
+                        $data['callsign']
+                    );
+                } else {
+                    $debug_msg .= " [Debug: No whitelist entry found for CID {$current_cid}]";
+                }
             }
+            
+            return new WP_Error('insufficient_rating', $debug_msg);
         }
 
         // Get controller name from WordPress
@@ -537,23 +635,25 @@ class VatCar_ATC_Booking {
                 return $controller_data;
             }
             
-            // Check if controller is whitelisted - if so, bypass division/subdivision checks
-            $is_whitelisted = self::is_controller_whitelisted($current_cid);
+            // Check whitelist status and type
+            $whitelist_entry = self::get_whitelist_entry($current_cid);
+            $is_visitor = $whitelist_entry && $whitelist_entry->authorization_type === 'visitor';
+            $is_solo_cert = $whitelist_entry && $whitelist_entry->authorization_type === 'solo';
             
             // Check position-specific authorization
             $is_authorized_for_position = self::is_authorized_for_position($current_cid, $data['callsign']);
             
-            if ($is_whitelisted) {
-                // Whitelisted controllers (visitors)
+            if ($is_visitor) {
+                // Visitors can ONLY book their explicitly authorized positions
                 if (!$is_authorized_for_position) {
-                    return new WP_Error('unauthorized_position', 'You are not authorized to book this position.');
+                    return new WP_Error('unauthorized_position', 'You are not authorized to book this position. Visitors may only book explicitly authorized positions.');
                 }
                 // Bypass division/subdivision checks for visitors
             } else {
-                // Non-whitelisted controllers must be in correct division/subdivision
+                // Non-visitors (including solo cert holders) must be in correct division/subdivision
                 if (empty($controller_data['division_id']) || $controller_data['division_id'] !== 'CAR') {
                     // Check if they have solo cert for this position
-                    if ($is_authorized_for_position) {
+                    if ($is_solo_cert && $is_authorized_for_position) {
                         // Has solo cert - allow it (bypass division check)
                     } else {
                         return new WP_Error('invalid_division', 'You must be in the VATCAR division to book ATC positions.');
@@ -565,7 +665,7 @@ class VatCar_ATC_Booking {
                 }
                 if (empty($controller_data['subdivision_id']) || $controller_data['subdivision_id'] !== $required_subdivision) {
                     // Check if they have solo cert for this position
-                    if ($is_authorized_for_position) {
+                    if ($is_solo_cert && $is_authorized_for_position) {
                         // Has solo cert - allow it (bypass subdivision check)
                     } else {
                         $sub_name = vatcar_get_subdivision_name($required_subdivision);
@@ -574,14 +674,39 @@ class VatCar_ATC_Booking {
                 }
             }
             
-            // Rating check - can be bypassed by solo certification
-            if ($is_authorized_for_position) {
-                // Solo cert holders bypass rating check for their authorized positions
-            } else {
-                // Standard rating check for non-certified positions
-                if (isset($controller_data['rating']) && intval($controller_data['rating']) < 2) {
-                    return new WP_Error('insufficient_rating', 'You must have at least S1 rating to book.');
+            // Rating check - solo cert provides ADDITIONAL positions beyond base rating
+            $required_rating = self::get_position_required_rating($data['callsign']);
+            $controller_rating = isset($controller_data['rating']) ? intval($controller_data['rating']) : 0;
+            
+            // Check if they meet rating requirement OR have authorization for this position
+            $has_sufficient_rating = ($controller_rating >= $required_rating);
+            
+            if (!$has_sufficient_rating && !$is_authorized_for_position) {
+                // They don't have the rating AND they're not authorized for this position
+                $rating_names = [2 => 'S1', 3 => 'S2', 4 => 'S3', 5 => 'C1'];
+                $required_name = $rating_names[$required_rating] ?? 'S1';
+                $position_type = explode('_', $data['callsign']);
+                $position_type = strtoupper(end($position_type));
+                
+                // Debug info for troubleshooting authorization issues
+                $debug_msg = "You need at least {$required_name} rating to book {$position_type} positions.";
+                if (function_exists('vatcar_atc_is_debug_enabled') && vatcar_atc_is_debug_enabled()) {
+                    // Get authorized positions for debugging
+                    $auth_entry = self::get_whitelist_entry($current_cid);
+                    if ($auth_entry) {
+                        $auth_positions = self::get_authorized_positions($auth_entry->id);
+                        $debug_msg .= sprintf(
+                            " [Debug: Type=%s, Authorized positions: %s, Trying to book: %s]",
+                            $auth_entry->authorization_type,
+                            !empty($auth_positions) ? implode(', ', $auth_positions) : 'ALL (none specified)',
+                            $data['callsign']
+                        );
+                    } else {
+                        $debug_msg .= " [Debug: No whitelist entry found for CID {$current_cid}]";
+                    }
                 }
+                
+                return new WP_Error('insufficient_rating', $debug_msg);
             }
         }
 
@@ -785,7 +910,7 @@ class VatCar_ATC_Booking {
             return vatsim_connect_get_cid(); // production VATSIM Connect
         }
         $host = isset($_SERVER['HTTP_HOST']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST'])) : '';
-        if (strpos($host, 'curacao.vatcar.local') !== false) {
+        if (strpos($host, 'curacao.vatcar.local') !== false || strpos($host, 'curacao-fir-vatcar.local') !== false) {
             return '1288763'; // static CID for local testing; adjust as needed
         }
         return (string)get_current_user_id(); // last fallback (numeric user id)
@@ -797,7 +922,7 @@ class VatCar_ATC_Booking {
     public static function get_controller_data($cid) {
         // For local testing, return mock data
         $host = isset($_SERVER['HTTP_HOST']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST'])) : '';
-        if (strpos($host, 'curacao.vatcar.local') !== false) {
+        if (strpos($host, 'curacao.vatcar.local') !== false || strpos($host, 'curacao-fir-vatcar.local') !== false) {
             return [
                 'id' => (int)$cid,
                 'division_id' => 'CAR',
