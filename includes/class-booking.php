@@ -13,7 +13,7 @@ class VatCar_ATC_Booking {
 
         // Require login (except local dev)
         $host = isset($_SERVER['HTTP_HOST']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST'])) : '';
-        if (strpos($host, 'curacao.vatcar.local') !== false) {
+        if (strpos($host, 'curacao.vatcar.local') !== false || strpos($host, 'curacao-fir-vatcar.local') !== false) {
             if (!is_user_logged_in()) {
                 echo '<p>You must be logged in to book a station.</p>';
                 return ob_get_clean();
@@ -785,7 +785,7 @@ class VatCar_ATC_Booking {
             return vatsim_connect_get_cid(); // production VATSIM Connect
         }
         $host = isset($_SERVER['HTTP_HOST']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST'])) : '';
-        if (strpos($host, 'curacao.vatcar.local') !== false) {
+        if (strpos($host, 'curacao.vatcar.local') !== false || strpos($host, 'curacao-fir-vatcar.local') !== false) {
             return '1288763'; // static CID for local testing; adjust as needed
         }
         return (string)get_current_user_id(); // last fallback (numeric user id)
@@ -797,7 +797,7 @@ class VatCar_ATC_Booking {
     public static function get_controller_data($cid) {
         // For local testing, return mock data
         $host = isset($_SERVER['HTTP_HOST']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST'])) : '';
-        if (strpos($host, 'curacao.vatcar.local') !== false) {
+        if (strpos($host, 'curacao.vatcar.local') !== false || strpos($host, 'curacao-fir-vatcar.local') !== false) {
             return [
                 'id' => (int)$cid,
                 'division_id' => 'CAR',
