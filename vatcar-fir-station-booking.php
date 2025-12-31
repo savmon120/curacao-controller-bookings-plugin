@@ -80,7 +80,7 @@ function vatcar_detect_subdivision() {
     if (strpos($host, 'piarco.vatcar.net') !== false) {
         return 'PIA';
     }
-    if (strpos($host, 'http://curacao-fir-vatcar.local') !== false) {
+    if (strpos($host, 'curacao-fir-vatcar.local') !== false) {
         return 'CUR';
     }
 
