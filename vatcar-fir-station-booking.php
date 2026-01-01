@@ -366,16 +366,20 @@ add_action('admin_enqueue_scripts', function($hook) {
     }
 });
 
-// Database schema
+// Database schema - version-based migrations to prevent data loss
 register_activation_hook(__FILE__, function() {
     global $wpdb;
-    $table = $wpdb->prefix . 'atc_bookings';
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    
+    $current_db_version = get_option('vatcar_db_version', '0');
     $charset_collate = $wpdb->get_charset_collate();
-
+    
+    // Main bookings table
+    $table = $wpdb->prefix . 'atc_bookings';
     $sql = "CREATE TABLE $table (
         id mediumint(9) NOT NULL AUTO_INCREMENT,
-        cid varchar(20) NOT NULL,          -- real controller CID
-        api_cid varchar(20) NULL,          -- service account CID used in API calls
+        cid varchar(20) NOT NULL,
+        api_cid varchar(20) NULL,
         callsign varchar(20) NOT NULL,
         type varchar(20) NOT NULL,
         start datetime NOT NULL,
@@ -383,74 +387,67 @@ register_activation_hook(__FILE__, function() {
         division varchar(50) NOT NULL,
         subdivision varchar(50),
         external_id int NULL,
+        controller_name varchar(100) NULL,
         PRIMARY KEY  (id),
         KEY callsign_start_end (callsign, start, end),
         KEY external_id (external_id)
     ) $charset_collate;";
-
-    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
     dbDelta($sql);
 
-    // Idempotent column adds for upgrades
-    $columns = $wpdb->get_col($wpdb->prepare(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s",
-        $wpdb->dbname, $table
-    ));
-    if (!in_array('external_id', $columns)) {
-        $wpdb->query("ALTER TABLE $table ADD COLUMN external_id int NULL");
-    }
-    if (!in_array('api_cid', $columns)) {
-        $wpdb->query("ALTER TABLE $table ADD COLUMN api_cid varchar(20) NULL");
-    }
-    if (!in_array('controller_name', $columns)) {
-        $wpdb->query("ALTER TABLE $table ADD COLUMN controller_name varchar(100) NULL");
-    }
-
-    // Create controller whitelist table
+    // Controller whitelist table - ONLY CREATE, never use dbDelta for updates
     $whitelist_table = $wpdb->prefix . 'atc_controller_whitelist';
-    $whitelist_sql = "CREATE TABLE $whitelist_table (
-        id mediumint(9) NOT NULL AUTO_INCREMENT,
-        cid varchar(20) NOT NULL,
-        notes text NULL,
-        added_by bigint(20) NOT NULL,
-        date_added datetime NOT NULL,
-        expires_at datetime NULL,
-        controller_name varchar(100) NULL,
-        authorization_type varchar(20) DEFAULT 'visitor',
-        PRIMARY KEY (id),
-        UNIQUE KEY cid (cid)
-    ) $charset_collate;";
-    dbDelta($whitelist_sql);
+    $whitelist_exists = $wpdb->get_var("SHOW TABLES LIKE '$whitelist_table'") === $whitelist_table;
     
-    // Add expires_at column if it doesn't exist (for upgrades)
-    $whitelist_columns = $wpdb->get_col($wpdb->prepare(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s",
-        $wpdb->dbname, $whitelist_table
-    ));
-    if (!in_array('expires_at', $whitelist_columns)) {
-        $wpdb->query("ALTER TABLE $whitelist_table ADD COLUMN expires_at datetime NULL");
-    }
-    if (!in_array('controller_name', $whitelist_columns)) {
-        $wpdb->query("ALTER TABLE $whitelist_table ADD COLUMN controller_name varchar(100) NULL");
-    }
-    if (!in_array('authorization_type', $whitelist_columns)) {
-        $wpdb->query("ALTER TABLE $whitelist_table ADD COLUMN authorization_type varchar(20) DEFAULT 'visitor'");
+    if (!$whitelist_exists) {
+        // Table doesn't exist - create it fresh
+        $whitelist_sql = "CREATE TABLE $whitelist_table (
+            id mediumint(9) NOT NULL AUTO_INCREMENT,
+            cid varchar(20) NOT NULL,
+            notes text NULL,
+            added_by bigint(20) NOT NULL,
+            date_added datetime NOT NULL,
+            expires_at datetime NULL,
+            controller_name varchar(100) NULL,
+            authorization_type varchar(20) DEFAULT 'visitor',
+            PRIMARY KEY (id),
+            UNIQUE KEY cid (cid)
+        ) $charset_collate;";
+        $wpdb->query($whitelist_sql);
+    } else {
+        // Table exists - only add missing columns (never use dbDelta)
+        $whitelist_columns = $wpdb->get_col($wpdb->prepare(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s",
+            $wpdb->dbname, $whitelist_table
+        ));
+        if (!in_array('expires_at', $whitelist_columns)) {
+            $wpdb->query("ALTER TABLE $whitelist_table ADD COLUMN expires_at datetime NULL");
+        }
+        if (!in_array('controller_name', $whitelist_columns)) {
+            $wpdb->query("ALTER TABLE $whitelist_table ADD COLUMN controller_name varchar(100) NULL");
+        }
+        if (!in_array('authorization_type', $whitelist_columns)) {
+            $wpdb->query("ALTER TABLE $whitelist_table ADD COLUMN authorization_type varchar(20) DEFAULT 'visitor'");
+        }
     }
 
-    // Create authorized positions table
+    // Authorized positions table
     $positions_table = $wpdb->prefix . 'atc_authorized_positions';
-    $positions_sql = "CREATE TABLE $positions_table (
-        id mediumint(9) NOT NULL AUTO_INCREMENT,
-        authorization_id mediumint(9) NOT NULL,
-        callsign varchar(20) NOT NULL,
-        date_granted datetime NOT NULL,
-        PRIMARY KEY (id),
-        KEY authorization_id (authorization_id),
-        UNIQUE KEY auth_callsign (authorization_id, callsign)
-    ) $charset_collate;";
-    dbDelta($positions_sql);
+    $positions_exists = $wpdb->get_var("SHOW TABLES LIKE '$positions_table'") === $positions_table;
+    
+    if (!$positions_exists) {
+        $positions_sql = "CREATE TABLE $positions_table (
+            id mediumint(9) NOT NULL AUTO_INCREMENT,
+            authorization_id mediumint(9) NOT NULL,
+            callsign varchar(20) NOT NULL,
+            date_granted datetime NOT NULL,
+            PRIMARY KEY (id),
+            KEY authorization_id (authorization_id),
+            UNIQUE KEY auth_callsign (authorization_id, callsign)
+        ) $charset_collate;";
+        $wpdb->query($positions_sql);
+    }
 
-    // Create booking compliance history table
+    // Booking compliance history table
     $history_table = $wpdb->prefix . 'atc_booking_compliance';
     $history_sql = "CREATE TABLE $history_table (
         id mediumint(9) NOT NULL AUTO_INCREMENT,
@@ -462,11 +459,12 @@ register_activation_hook(__FILE__, function() {
         PRIMARY KEY  (id),
         KEY booking_id (booking_id),
         KEY cid (cid),
-        KEY checked_at (checked_at),
-        FOREIGN KEY (booking_id) REFERENCES $table(id) ON DELETE CASCADE
+        KEY checked_at (checked_at)
     ) $charset_collate;";
-    
     dbDelta($history_sql);
+
+    // Update database version
+    update_option('vatcar_db_version', '1.4.0');
 
     // Schedule daily cleanup of expired bookings
     if (!wp_next_scheduled('vatcar_cleanup_expired_bookings')) {
