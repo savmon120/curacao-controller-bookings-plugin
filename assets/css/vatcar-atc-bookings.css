@@ -692,6 +692,97 @@
 }
 
 /* ============================================
+   CONTROLLER RESOURCES SECTION
+   ============================================ */
+
+.controller-resources {
+    margin-top: 60px;
+    margin-bottom: 60px;
+    padding-top: 40px;
+    padding-bottom: 40px;
+    border-top: 2px solid #e5e7eb;
+}
+
+.controller-resources h2 {
+    font-size: 28px;
+    font-weight: 700;
+    color: #1f2937;
+    margin-bottom: 10px;
+}
+
+.resources-intro {
+    color: #6b7280;
+    margin-bottom: 30px;
+    font-size: 16px;
+}
+
+.resource-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+}
+
+.resource-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 15px;
+    padding: 20px;
+    background: white;
+    border: 2px solid #e5e7eb;
+    border-radius: 12px;
+    text-decoration: none;
+    color: inherit;
+    transition: all 0.3s ease;
+}
+
+.resource-card:hover {
+    border-color: #667eea;
+    background: #f9fafb;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+}
+
+.resource-icon {
+    font-size: 32px;
+    flex-shrink: 0;
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f3f4f6;
+    border-radius: 10px;
+    transition: all 0.3s ease;
+}
+
+.resource-card:hover .resource-icon {
+    background: #667eea;
+    transform: scale(1.1);
+}
+
+.resource-content h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1f2937;
+    margin: 0 0 6px 0;
+}
+
+.resource-content p {
+    font-size: 14px;
+    color: #6b7280;
+    margin: 0;
+    line-height: 1.5;
+}
+
+/* Color variations for different resource types */
+.resource-card.sops:hover .resource-icon { background: #3b82f6; }
+.resource-card.charts:hover .resource-icon { background: #10b981; }
+.resource-card.training:hover .resource-icon { background: #f59e0b; }
+.resource-card.loa:hover .resource-icon { background: #8b5cf6; }
+.resource-card.schedule:hover .resource-icon { background: #ec4899; }
+.resource-card.downloads:hover .resource-icon { background: #06b6d4; }
+
+/* ============================================
    RESPONSIVE - CONTROLLER DASHBOARD
    ============================================ */
 
@@ -704,6 +795,16 @@
     }
     .bookings-table {
         overflow-x: auto;
+    }
+    .resource-grid {
+        grid-template-columns: 1fr;
+    }
+    .controller-resources {
+        margin-top: 40px;
+        padding-top: 30px;
+    }
+    .controller-resources h2 {
+        font-size: 24px;
     }
 }
 
