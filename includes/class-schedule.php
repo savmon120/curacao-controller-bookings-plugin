@@ -100,13 +100,13 @@ class VatCar_ATC_Schedule {
                     }
 
                     // Only log info if debug flag is enabled
-                    if (defined('VATSIM_ATC_DEBUG') && VATSIM_ATC_DEBUG) {
+                    if (function_exists('vatcar_atc_is_debug_enabled') && vatcar_atc_is_debug_enabled()) {
                         error_log("ATC schedule sync: inserted={$inserted}, updated={$updated}");
                     }
                 }
             } else {
                 // Only log unexpected API responses if debug is enabled
-                if (defined('VATCAR_ATC_DEBUG') && VATCAR_ATC_DEBUG) {
+                if (function_exists('vatcar_atc_is_debug_enabled') && vatcar_atc_is_debug_enabled()) {
                     error_log('Unexpected VATSIM API response (not array): ' . print_r($data, true));
                 }
             }
