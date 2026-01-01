@@ -615,6 +615,15 @@ add_action('admin_menu', function() {
 
     add_submenu_page(
         'vatcar-atc-dashboard',
+        'Dashboard Resources',
+        'Dashboard Resources',
+        'manage_options',
+        'vatcar-atc-resources',
+        'vatcar_atc_resources_page'
+    );
+
+    add_submenu_page(
+        'vatcar-atc-dashboard',
         'Settings',
         'Settings',
         'manage_options',
@@ -692,7 +701,127 @@ add_action('admin_init', function() {
         'vatcar-atc-settings',
         'vatcar_atc_advanced'
     );
+    
+    // Resources configuration (separate settings page)
+    register_setting('vatcar_atc_resources_settings', 'vatcar_resources_enabled');
+    register_setting('vatcar_atc_resources_settings', 'vatcar_resources_config');
 });
+
+/**
+ * Render controller resources configuration fields
+ */
+function vatcar_resources_config_field() {
+    $defaults = [
+        'sops' => [
+            'title' => 'Standard Operating Procedures',
+            'description' => 'Official SOPs for all positions in the FIR',
+            'icon' => '📄',
+            'url' => ''
+        ],
+        'charts' => [
+            'title' => 'Charts & Diagrams',
+            'description' => 'Sector maps, airspace diagrams, and reference materials',
+            'icon' => '📊',
+            'url' => ''
+        ],
+        'training' => [
+            'title' => 'Training Materials',
+            'description' => 'Study guides, practical exercises, and certification resources',
+            'icon' => '📚',
+            'url' => ''
+        ],
+        'loa' => [
+            'title' => 'Letters of Agreement',
+            'description' => 'Coordination procedures with adjacent FIRs and facilities',
+            'icon' => '📝',
+            'url' => ''
+        ],
+        'schedule' => [
+            'title' => 'Full ATC Schedule',
+            'description' => 'View all upcoming controller bookings in the FIR',
+            'icon' => '📅',
+            'url' => '/controller-schedule/'
+        ],
+        'downloads' => [
+            'title' => 'Downloads',
+            'description' => 'Sector files, plugins, and other essential downloads',
+            'icon' => '⬇️',
+            'url' => ''
+        ]
+    ];
+    
+    $config = get_option('vatcar_resources_config', $defaults);
+    
+    // Merge with defaults to ensure all fields exist
+    foreach ($defaults as $key => $default) {
+        if (!isset($config[$key])) {
+            $config[$key] = $default;
+        }
+    }
+    
+    echo '<table class="widefat" style="max-width: 900px;">';
+    echo '<thead><tr><th style="width:15%;">Resource</th><th style="width:25%;">Title</th><th style="width:35%;">URL</th><th style="width:25%;">Description</th></tr></thead>';
+    echo '<tbody>';
+    
+    foreach ($config as $key => $resource) {
+        $title = isset($resource['title']) ? esc_attr($resource['title']) : '';
+        $url = isset($resource['url']) ? esc_attr($resource['url']) : '';
+        $description = isset($resource['description']) ? esc_attr($resource['description']) : '';
+        $icon = isset($resource['icon']) ? esc_html($resource['icon']) : '';
+        
+        echo '<tr>';
+        echo '<td><strong>' . $icon . ' ' . esc_html(ucfirst($key)) . '</strong></td>';
+        echo '<td><input type="text" name="vatcar_resources_config[' . esc_attr($key) . '][title]" value="' . $title . '" class="regular-text" /></td>';
+        echo '<td><input type="text" name="vatcar_resources_config[' . esc_attr($key) . '][url]" value="' . $url . '" class="regular-text" placeholder="Leave empty to hide" /></td>';
+        echo '<td><input type="text" name="vatcar_resources_config[' . esc_attr($key) . '][description]" value="' . $description . '" class="regular-text" /></td>';
+        echo '<input type="hidden" name="vatcar_resources_config[' . esc_attr($key) . '][icon]" value="' . esc_attr($icon) . '" />';
+        echo '</tr>';
+    }
+    
+    echo '</tbody></table>';
+    echo '<p class="description">Leave URL field empty to hide a resource from the dashboard. Supports absolute URLs (/page-slug/) or full URLs (https://example.com/page).</p>';
+}
+
+function vatcar_atc_resources_page() {
+    // Prevent access if site not recognised
+    if (!vatcar_admin_subdivision_check()) {
+        echo '<div class="wrap"><h1>Dashboard Resources</h1></div>';
+        return;
+    }
+    ?>
+    <div class="wrap">
+        <h1>Controller Dashboard Resources</h1>
+        <p>Configure the resource links that appear on the controller dashboard. These provide quick access to important documents and materials for controllers.</p>
+        
+        <form method="post" action="options.php">
+            <?php
+            settings_fields('vatcar_atc_resources_settings');
+            ?>
+            
+            <table class="form-table">
+                <tr>
+                    <th scope="row">Enable Resources Section</th>
+                    <td>
+                        <?php $enabled = get_option('vatcar_resources_enabled', true); ?>
+                        <label>
+                            <input type="checkbox" name="vatcar_resources_enabled" value="1" <?php checked(1, $enabled); ?> />
+                            Show resources section on controller dashboard
+                        </label>
+                        <p class="description">Uncheck to completely hide the resources section from the controller dashboard.</p>
+                    </td>
+                </tr>
+            </table>
+            
+            <h2>Resource Configuration</h2>
+            <p>Configure each resource link below. Leave the URL field empty to hide that specific resource.</p>
+            
+            <?php vatcar_resources_config_field(); ?>
+            
+            <?php submit_button('Save Resource Configuration'); ?>
+        </form>
+    </div>
+    <?php
+}
 
 function vatcar_atc_settings_page() {
     // Prevent access if site not recognised
