@@ -49,9 +49,20 @@
 [] **Controller performance reports** - Detailed on-time percentage reports, booking consistency metrics
 [] **Calendar grid view** - Month/week calendar view with visual timeline for bookings
 
+## Known Issues / Bug Fixes Needed
+[] **Dashboard status display bug** - Past bookings in ATC Bookings dashboard show "no show" even when compliance table has "on_time" records
+   - Root cause: Dashboard queries real-time VATSIM status instead of using historical compliance data
+   - Fix approach: Check compliance table first for past bookings, only query live data for current/upcoming bookings
+   - Priority: Medium (display issue only, doesn't affect data integrity)
+   - Affected: FIR staff dashboard (`includes/class-dashboard.php`)
+
 ## Feature Requests / Ideas
+[] **Admin book on behalf of controller** - Allow FIR staff to create bookings for other controllers
+   - Use case: Staff scheduling, coverage coordination, event planning
+   - Implementation: Add CID selection dropdown for admins in booking form, validate target controller eligibility
+   - Related: Admins can already edit/delete others' bookings (v1.4.0), this would complete the admin booking management suite
+   
 [] **Recurring bookings** - Set up repeating bookings (e.g., every Friday 1800-2200z for a month)
-[] **Admin booking delegation** - Allow FIR staff to book on behalf of controllers
 [] **Position availability forecast** - Show busy/quiet times based on historical data
 [] **Live traffic integration** - Display current network traffic alongside scheduled bookings
 [] **Achievement badges** - Recognition system for consistent, reliable controllers
