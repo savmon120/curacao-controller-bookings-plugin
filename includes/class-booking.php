@@ -1100,9 +1100,9 @@ class VatCar_ATC_Booking {
      */
     public static function ajax_lookup_controller() {
         // Verify nonce
-        if (!isset($_POST['vatcar_lookup_controller_nonce']) 
-            || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['vatcar_lookup_controller_nonce'])), 'vatcar_lookup_controller')) {
-            wp_send_json_error('Security check failed', 403);
+        $nonce = isset($_POST['vatcar_lookup_controller_nonce']) ? sanitize_text_field(wp_unslash($_POST['vatcar_lookup_controller_nonce'])) : '';
+        if (!wp_verify_nonce($nonce, 'vatcar_lookup_controller')) {
+            wp_send_json_error('Invalid request', 403);
         }
 
         if (!current_user_can('manage_options')) {
