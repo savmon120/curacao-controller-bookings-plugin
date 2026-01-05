@@ -498,13 +498,13 @@ class VatCar_ATC_Booking {
             // Check division/subdivision for basic eligibility
             if (!$is_visitor) {
                 if (empty($controller_data['division_id']) || $controller_data['division_id'] !== 'CAR') {
-                    if (!($is_solo_cert && $whitelist_entry)) {
+                    if (!$is_solo_cert) {
                         $warnings[] = 'Controller is not in the VATCAR division. Division membership is required unless authorized as a visitor or solo certification holder.';
                     }
                 }
                 $required_subdivision = vatcar_detect_subdivision();
                 if (!empty($required_subdivision) && (empty($controller_data['subdivision_id']) || $controller_data['subdivision_id'] !== $required_subdivision)) {
-                    if (!($is_solo_cert && $whitelist_entry)) {
+                    if (!$is_solo_cert) {
                         $sub_name = vatcar_get_subdivision_name($required_subdivision);
                         $warnings[] = "Controller is not in the {$sub_name} subdivision. Subdivision membership is required unless authorized as a visitor or solo certification holder.";
                     }
