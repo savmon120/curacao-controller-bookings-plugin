@@ -580,7 +580,7 @@ register_activation_hook(__FILE__, function() {
     dbDelta($history_sql);
 
     // Update database version
-    update_option('vatcar_db_version', '1.4.0');
+    update_option('vatcar_db_version', '1.4.1');
 
     // Schedule daily cleanup of expired bookings
     if (!wp_next_scheduled('vatcar_cleanup_expired_bookings')) {
