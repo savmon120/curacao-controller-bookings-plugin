@@ -1099,8 +1099,14 @@ class VatCar_ATC_Booking {
      * Returns controller division, subdivision, rating, and eligibility warnings
      */
     public static function ajax_lookup_controller() {
+        // Verify nonce
+        $nonce = isset($_POST['vatcar_lookup_controller_nonce']) ? sanitize_text_field(wp_unslash($_POST['vatcar_lookup_controller_nonce'])) : '';
+        if (!wp_verify_nonce($nonce, 'vatcar_lookup_controller')) {
+            wp_send_json_error('Invalid request', 403);
+        }
+
         if (!current_user_can('manage_options')) {
-            wp_send_json_error('Unauthorized');
+            wp_send_json_error('Unauthorized', 403);
         }
 
         $cid = sanitize_text_field($_POST['cid'] ?? '');

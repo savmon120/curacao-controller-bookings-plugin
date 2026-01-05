@@ -319,6 +319,7 @@ class VatCar_ATC_Dashboard {
                         const formData = new FormData();
                         formData.append('action', 'lookup_controller');
                         formData.append('cid', cid);
+                        formData.append('vatcar_lookup_controller_nonce', '<?php echo esc_attr( wp_create_nonce( "vatcar_lookup_controller" ) ); ?>');
 
                         fetch(ajaxurl, {
                             method: 'POST',
