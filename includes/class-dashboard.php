@@ -10,6 +10,26 @@ if (!defined('ABSPATH')) {
 class VatCar_ATC_Dashboard {
 
     /**
+     * Get the most recent compliance status recorded for a booking.
+     * Returns a string status or null if none exists.
+     */
+    private static function get_latest_booking_compliance_status($booking_id) {
+        global $wpdb;
+
+        $history_table = $wpdb->prefix . 'atc_booking_compliance';
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT status FROM $history_table WHERE booking_id = %d ORDER BY checked_at DESC LIMIT 1",
+            (int)$booking_id
+        ));
+
+        if (!$row || empty($row->status)) {
+            return null;
+        }
+
+        return (string)$row->status;
+    }
+
+    /**
      * Render the manage bookings dashboard
      */
     public static function render_dashboard() {
@@ -38,11 +58,18 @@ class VatCar_ATC_Dashboard {
             <h1>ATC Bookings Dashboard</h1>
             <p>Managing bookings for: <strong><?php echo esc_html(vatcar_get_subdivision_name($subdivision)); ?></strong></p>
 
+            <p>
+                <button type="button" id="new-booking-btn" class="button button-primary">
+                    <span class="dashicons dashicons-plus-alt" style="vertical-align: middle;"></span> New Booking
+                </button>
+            </p>
+
             <table class="wp-list-table widefat fixed striped">
                 <thead>
                     <tr>
                         <th scope="col">Callsign</th>
                         <th scope="col">Controller</th>
+                        <th scope="col">Created By</th>
                         <th scope="col">Booked</th>
                         <th scope="col">Status</th>
                         <th scope="col">Actions</th>
@@ -51,7 +78,7 @@ class VatCar_ATC_Dashboard {
                 <tbody>
                     <?php if (empty($bookings)): ?>
                         <tr>
-                            <td colspan="5" style="text-align: center;">No bookings found</td>
+                            <td colspan="6" style="text-align: center;">No bookings found</td>
                         </tr>
                     <?php else: ?>
                         <?php foreach ($bookings as $booking): ?>
@@ -65,6 +92,21 @@ class VatCar_ATC_Dashboard {
                                     echo esc_html($name); 
                                     ?><br>
                                     <small style="color: #666;"><?php echo esc_html($booking->cid); ?></small>
+                                </td>
+                                <td>
+                                    <?php 
+                                    if (isset($booking->created_by_cid) && !empty($booking->created_by_cid)) {
+                                        $creator_cid = $booking->created_by_cid;
+                                        $creator_name = VatCar_ATC_Booking::get_controller_name_for_sync($creator_cid);
+                                        if ($creator_name === 'Unknown') {
+                                            $creator_name = 'Unknown';
+                                        }
+                                        echo esc_html($creator_name);
+                                        echo '<br><small style="color: #666;">' . esc_html($creator_cid) . '</small>';
+                                    } else {
+                                        echo '<small style="color: #999;">—</small>';
+                                    }
+                                    ?>
                                 </td>
                                 <td>
                                     <small>
@@ -131,10 +173,98 @@ class VatCar_ATC_Dashboard {
         include plugin_dir_path(__FILE__) . '../templates/delete-booking-form.php';
         ?>
 
+        <!-- New Booking Modal -->
+        <div id="new-booking-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center; overflow-y: auto;">
+            <div style="background: white; padding: 30px; border-radius: 8px; max-width: 600px; width: 90%; margin: 40px auto; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="margin: 0;">Create New Booking</h2>
+                    <button type="button" id="new-booking-modal-close" style="background: none; border: none; font-size: 28px; cursor: pointer; color: #666; line-height: 1;">&times;</button>
+                </div>
+                
+                <div id="new-booking-message" style="display: none; padding: 12px; border-radius: 5px; margin-bottom: 15px;"></div>
+
+                <form id="dashboard-booking-form">
+                    <?php wp_nonce_field('vatcar_new_booking','vatcar_booking_nonce'); ?>
+                    
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 5px;">Controller CID:</label>
+                        <input type="text" name="controller_cid" id="dashboard-cid" 
+                               style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;"
+                               placeholder="e.g. 1234567" required pattern="\d+" inputmode="numeric">
+                        <small style="color: #666;">Enter the VATSIM CID of the controller</small>
+                        <div id="dashboard-cid-lookup" style="margin-top: 8px;"></div>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 5px;">Station:</label>
+                        <select name="callsign" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                            <option value="" disabled selected>-- Select --</option>
+                            <?php
+                            $stations = vatcar_generate_station_list();
+                            foreach($stations as $station){
+                                $display = ($station === 'TNCA_GND') ? 'TNCA_RMP' : $station;
+                                echo '<option value="'.esc_attr($station).'">'.esc_html($display).'</option>';
+                            }
+                            ?>
+                        </select>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 5px;">Start Date (UTC):</label>
+                        <input type="date" name="start_date" required 
+                               style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;"
+                               min="<?php echo gmdate('Y-m-d'); ?>">
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 5px;">Start Time (UTC):</label>
+                        <select name="start_time" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                            <option value="" disabled selected>-- Select Time --</option>
+                            <?php
+                            foreach(range(0,23) as $h){
+                                foreach(['00','15','30','45'] as $q){
+                                    $t = sprintf('%02d:%s', $h, $q);
+                                    echo "<option value='{$t}'>{$t}</option>";
+                                }
+                            }
+                            ?>
+                        </select>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 5px;">End Date (UTC):</label>
+                        <input type="date" name="end_date" required 
+                               style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;"
+                               min="<?php echo gmdate('Y-m-d'); ?>">
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 5px;">End Time (UTC):</label>
+                        <select name="end_time" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                            <option value="" disabled selected>-- Select Time --</option>
+                            <?php
+                            foreach(range(0,23) as $h){
+                                foreach(['00','15','30','45'] as $q){
+                                    $t = sprintf('%02d:%s', $h, $q);
+                                    echo "<option value='{$t}'>{$t}</option>";
+                                }
+                            }
+                            ?>
+                        </select>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" id="new-booking-modal-cancel" class="button">Cancel</button>
+                        <button type="submit" class="button button-primary">Create Booking</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
         <!-- Modal for compliance history -->
         <div id="compliance-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center;">
             <div style="background: white; padding: 20px; border-radius: 5px; max-width: 800px; width: 90%; max-height: 80vh; overflow-y: auto;">
-                <button type="button" style="float: right; background: none; border: none; font-size: 24px; cursor: pointer;" onclick="document.getElementById('compliance-modal').style.display='none';">&times;</button>
+                <button type="button" id="compliance-modal-close" style="float: right; background: none; border: none; font-size: 24px; cursor: pointer;">&times;</button>
                 <h2 id="modal-title">Controller Compliance Record</h2>
                 <p style="color: #666; margin-top: 5px;" id="modal-subtitle">Complete booking history and punctuality tracking</p>
                 <div id="modal-content" style="margin-top: 20px;">
@@ -154,6 +284,162 @@ class VatCar_ATC_Dashboard {
 
         <script>
         document.addEventListener('DOMContentLoaded', function() {
+            // New Booking Modal
+            const newBookingBtn = document.getElementById('new-booking-btn');
+            const newBookingModal = document.getElementById('new-booking-modal');
+            const newBookingForm = document.getElementById('dashboard-booking-form');
+            const dashboardCid = document.getElementById('dashboard-cid');
+            const cidLookupDiv = document.getElementById('dashboard-cid-lookup');
+            const messageDiv = document.getElementById('new-booking-message');
+
+            if (newBookingBtn) {
+                newBookingBtn.addEventListener('click', function() {
+                    newBookingModal.style.display = 'flex';
+                    newBookingForm.reset();
+                    messageDiv.style.display = 'none';
+                    cidLookupDiv.innerHTML = '';
+                });
+            }
+
+            // Close new booking modal - close button
+            const newBookingModalClose = document.getElementById('new-booking-modal-close');
+            if (newBookingModalClose) {
+                newBookingModalClose.addEventListener('click', function() {
+                    newBookingModal.style.display = 'none';
+                });
+            }
+
+            // Close new booking modal - cancel button
+            const newBookingModalCancel = document.getElementById('new-booking-modal-cancel');
+            if (newBookingModalCancel) {
+                newBookingModalCancel.addEventListener('click', function() {
+                    newBookingModal.style.display = 'none';
+                });
+            }
+
+            // Close compliance modal
+            const complianceModalClose = document.getElementById('compliance-modal-close');
+            const complianceModal = document.getElementById('compliance-modal');
+            if (complianceModalClose && complianceModal) {
+                complianceModalClose.addEventListener('click', function() {
+                    complianceModal.style.display = 'none';
+                });
+            }
+
+            // CID Lookup for dashboard modal
+            let cidLookupTimer = null;
+            if (dashboardCid) {
+                dashboardCid.addEventListener('input', function() {
+                    clearTimeout(cidLookupTimer);
+                    const cid = this.value.trim();
+                    
+                    if (!cid || !/^\d{1,10}$/.test(cid)) {
+                        cidLookupDiv.innerHTML = '';
+                        return;
+                    }
+
+                    cidLookupDiv.innerHTML = '<div style="padding:8px; color:#666;">🔍 Looking up controller...</div>';
+
+                    cidLookupTimer = setTimeout(function() {
+                        const formData = new FormData();
+                        formData.append('action', 'lookup_controller');
+                        formData.append('cid', cid);
+                        formData.append('vatcar_lookup_controller_nonce', '<?php echo esc_attr( wp_create_nonce( "vatcar_lookup_controller" ) ); ?>');
+
+                        fetch(ajaxurl, {
+                            method: 'POST',
+                            body: formData,
+                        })
+                        .then(r => r.json())
+                        .then(resp => {
+                            if (resp.success) {
+                                const data = resp.data;
+                                let html = '<div style="padding:10px; background:#efe; border:1px solid #3c3; border-radius:5px; color:#060;">';
+                                html += '<strong>✓ Controller Found</strong><br>';
+                                html += 'Division: ' + (data.division || 'Unknown') + '<br>';
+                                html += 'Subdivision: ' + (data.subdivision || 'Unknown') + '<br>';
+                                html += 'Rating: ' + (data.rating_name || 'Unknown') + ' (' + (data.rating || 0) + ')';
+                                
+                                if (data.whitelist_type) {
+                                    html += '<br><span style="color:#f80; font-weight:600;">✦ ' + data.whitelist_type.toUpperCase() + '</span>';
+                                    if (data.authorized_positions && data.authorized_positions.length > 0) {
+                                        html += '<br><small>Authorized: ' + data.authorized_positions.join(', ') + '</small>';
+                                    }
+                                }
+
+                                const requiredSubdiv = '<?php echo esc_js(vatcar_detect_subdivision()); ?>';
+                                if (data.division !== 'CAR' && !data.whitelist_type) {
+                                    html += '<br><span style="color:#c33; font-weight:600;">⚠ Not in VATCAR division</span>';
+                                }
+                                if (data.subdivision !== requiredSubdiv && !data.whitelist_type) {
+                                    html += '<br><span style="color:#c33; font-weight:600;">⚠ Wrong subdivision</span>';
+                                }
+
+                                html += '</div>';
+                                cidLookupDiv.innerHTML = html;
+                            } else {
+                                cidLookupDiv.innerHTML = '<div style="padding:8px; background:#fee; border:1px solid #c33; border-radius:5px; color:#c33;">⚠️ ' + (resp.data || 'Failed to lookup controller') + '</div>';
+                            }
+                        })
+                        .catch(err => {
+                            cidLookupDiv.innerHTML = '<div style="padding:8px; background:#fee; border:1px solid #c33; border-radius:5px; color:#c33;">⚠️ Network error</div>';
+                        });
+                    }, 600);
+                });
+            }
+
+            // Handle new booking form submission
+            if (newBookingForm) {
+                newBookingForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+
+                    const submitBtn = this.querySelector('button[type="submit"]');
+                    const originalText = submitBtn.textContent;
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Creating...';
+                    messageDiv.style.display = 'none';
+
+                    const formData = new FormData(this);
+                    formData.append('action', 'create_booking_from_dashboard');
+
+                    fetch(ajaxurl, {
+                        method: 'POST',
+                        body: formData,
+                    })
+                    .then(r => r.json())
+                    .then(resp => {
+                        if (resp.success) {
+                            messageDiv.style.display = 'block';
+                            messageDiv.style.background = '#d4edda';
+                            messageDiv.style.border = '1px solid #c3e6cb';
+                            messageDiv.style.color = '#155724';
+                            messageDiv.textContent = '✓ Booking created successfully! Reloading...';
+                            
+                            setTimeout(function() {
+                                location.reload();
+                            }, 1500);
+                        } else {
+                            messageDiv.style.display = 'block';
+                            messageDiv.style.background = '#f8d7da';
+                            messageDiv.style.border = '1px solid #f5c6cb';
+                            messageDiv.style.color = '#721c24';
+                            messageDiv.textContent = '⚠️ Error: ' + (resp.data || 'Failed to create booking');
+                            submitBtn.disabled = false;
+                            submitBtn.textContent = originalText;
+                        }
+                    })
+                    .catch(err => {
+                        messageDiv.style.display = 'block';
+                        messageDiv.style.background = '#f8d7da';
+                        messageDiv.style.border = '1px solid #f5c6cb';
+                        messageDiv.style.color = '#721c24';
+                        messageDiv.textContent = '⚠️ Network error. Please try again.';
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalText;
+                    });
+                });
+            }
+
             // Load status for each booking
             document.querySelectorAll('.booking-status').forEach(function(el) {
                 const bookingId = el.getAttribute('data-booking-id');
@@ -311,6 +597,30 @@ class VatCar_ATC_Dashboard {
 
         if (!$cid || !$callsign || !$start) {
             wp_send_json_error('Missing parameters');
+        }
+
+        // If the booking is in the past and we already have compliance history, prefer that
+        // over live VATSIM checks (which will frequently report past bookings as no_show).
+        if ($booking_id > 0) {
+            global $wpdb;
+            $bookings_table = $wpdb->prefix . 'atc_bookings';
+            $booking = $wpdb->get_row($wpdb->prepare(
+                "SELECT start, end FROM $bookings_table WHERE id = %d",
+                (int)$booking_id
+            ));
+
+            if ($booking && !empty($booking->end)) {
+                $now_gmt = (int) current_time('timestamp', true);
+                $end_ts  = strtotime((string)$booking->end . ' UTC');
+
+                if ($end_ts && $end_ts < $now_gmt) {
+                    $latest = self::get_latest_booking_compliance_status($booking_id);
+                    if ($latest !== null) {
+                        // For past bookings, do not record a new "current" status.
+                        wp_send_json_success(['status' => $latest]);
+                    }
+                }
+            }
         }
 
         $status = VatCar_ATC_Booking::is_controller_logged_in_on_time($cid, $callsign, $start);

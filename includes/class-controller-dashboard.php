@@ -17,7 +17,10 @@ class VatCar_Controller_Dashboard {
         }
 
         $user = wp_get_current_user();
-        if (!in_array('controller', (array) $user->roles, true)) {
+        $is_admin = current_user_can('manage_options');
+        $is_controller = in_array('controller', (array) $user->roles, true);
+        
+        if (!$is_controller && !$is_admin) {
             return '<p>You do not have permission to view controller bookings.</p>';
         }
 
@@ -28,7 +31,7 @@ class VatCar_Controller_Dashboard {
 
         global $wpdb;
         $table = $wpdb->prefix . 'atc_bookings';
-        $now = current_time('mysql');
+        $now = gmdate('Y-m-d H:i:s'); // Use GMT to match booking storage timezone
 
         // Get upcoming bookings (end >= now)
         $upcoming = $wpdb->get_results($wpdb->prepare(
@@ -241,6 +244,46 @@ class VatCar_Controller_Dashboard {
                     </div>
                 <?php endif; ?>
             </div>
+
+            <!-- Controller Resources Section -->
+            <?php
+            $resources_enabled = get_option('vatcar_resources_enabled', true);
+            if ($resources_enabled):
+                $resources_config = get_option('vatcar_resources_config', []);
+                
+                // Filter out empty URLs
+                $active_resources = array_filter($resources_config, function($resource) {
+                    return !empty($resource['url']);
+                });
+                
+                if (!empty($active_resources)):
+            ?>
+            <div class="controller-resources">
+                <h2>Controller Resources</h2>
+                <p class="resources-intro">Quick access to essential documents, procedures, and materials for controlling in the <?php echo esc_html(vatcar_get_subdivision_name(vatcar_detect_subdivision())); ?> FIR.</p>
+                
+                <div class="resource-grid">
+                    <?php foreach ($active_resources as $key => $resource): ?>
+                        <?php
+                        $resource_url = $resource['url'];
+                        if (function_exists('vatcar_add_dashboard_ref_to_url')) {
+                            $resource_url = vatcar_add_dashboard_ref_to_url($resource_url);
+                        }
+                        ?>
+                        <a href="<?php echo esc_url($resource_url); ?>" class="resource-card <?php echo esc_attr($key); ?>">
+                            <div class="resource-icon"><?php echo esc_html($resource['icon']); ?></div>
+                            <div class="resource-content">
+                                <h3><?php echo esc_html($resource['title']); ?></h3>
+                                <p><?php echo esc_html($resource['description']); ?></p>
+                            </div>
+                        </a>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <?php 
+                endif; // active_resources
+            endif; // resources_enabled
+            ?>
         </div>
 
         <?php

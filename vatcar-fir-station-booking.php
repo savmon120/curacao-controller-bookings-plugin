@@ -2,7 +2,7 @@
 /**
  * Plugin Name: VATCAR FIR Station Booking
  * Description: ATC booking system for WordPress, integrating with VATSIM ATC Bookings API.
- * Version: 1.3.0
+ * Version: 1.4.1
  * Author: Sav Monzac
  * GitHub Plugin URI: savmon120/curacao-controller-bookings-plugin
  * Primary Branch: dev
@@ -186,6 +186,8 @@ function vatcar_unrecognised_site_error($as_html = true) {
 // AJAX handlers
 add_action('wp_ajax_update_booking', ['VatCar_ATC_Booking', 'ajax_update_booking']);
 add_action('wp_ajax_delete_booking', ['VatCar_ATC_Booking', 'ajax_delete_booking']);
+add_action('wp_ajax_lookup_controller', ['VatCar_ATC_Booking', 'ajax_lookup_controller']);
+add_action('wp_ajax_create_booking_from_dashboard', 'vatcar_ajax_create_booking_from_dashboard');
 add_action('wp_ajax_vatcar_get_booking_status', ['VatCar_ATC_Dashboard', 'ajax_get_booking_status']);
 add_action('wp_ajax_vatcar_get_compliance_history', ['VatCar_ATC_Dashboard', 'ajax_get_compliance_history']);
 add_action('wp_ajax_vatcar_get_cid_compliance', ['VatCar_ATC_Dashboard', 'ajax_get_cid_compliance']);
@@ -256,6 +258,79 @@ function vatcar_ajax_add_controller() {
         wp_send_json_success('Authorization added successfully');
     } else {
         wp_send_json_error('Failed to add authorization (may already exist)');
+    }
+}
+
+/**
+ * AJAX handler: Create booking from dashboard (admin only)
+ */
+function vatcar_ajax_create_booking_from_dashboard() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Unauthorized');
+    }
+
+    // Verify nonce
+    if (!isset($_POST['vatcar_booking_nonce'])
+        || !wp_verify_nonce($_POST['vatcar_booking_nonce'], 'vatcar_new_booking')) {
+        wp_send_json_error('Security check failed');
+    }
+
+    // Parse and validate input
+    $controller_cid = sanitize_text_field($_POST['controller_cid'] ?? '');
+    $callsign = sanitize_text_field($_POST['callsign'] ?? '');
+    $start_date = sanitize_text_field($_POST['start_date'] ?? '');
+    $start_time = sanitize_text_field($_POST['start_time'] ?? '');
+    $end_date = sanitize_text_field($_POST['end_date'] ?? '');
+    $end_time = sanitize_text_field($_POST['end_time'] ?? '');
+
+    if (empty($controller_cid) || !preg_match('/^\d{1,10}$/', $controller_cid)) {
+        wp_send_json_error('Invalid Controller CID');
+    }
+
+    // Build UTC timestamps
+    $start_str = trim($start_date) . ' ' . trim($start_time);
+    $end_str = trim($end_date) . ' ' . trim($end_time);
+
+    $start_ts = strtotime($start_str . ' UTC');
+    $end_ts = strtotime($end_str . ' UTC');
+
+    if (!$start_ts || !$end_ts) {
+        wp_send_json_error('Invalid start/end date or time');
+    }
+
+    $start = gmdate('Y-m-d H:i:s', $start_ts);
+    $end = gmdate('Y-m-d H:i:s', $end_ts);
+
+    // Detect subdivision
+    $subdivision = vatcar_detect_subdivision();
+    if (empty($subdivision)) {
+        wp_send_json_error(vatcar_unrecognised_site_error(false));
+    }
+
+    // Validate controller eligibility before attempting to create booking
+    $is_admin = current_user_can('manage_options');
+    $eligibility = VatCar_ATC_Booking::validate_controller_eligibility($controller_cid, $callsign, $is_admin);
+    
+    if (!$eligibility['eligible']) {
+        $error_message = $eligibility['error'] ? $eligibility['error']->get_error_message() : 'Controller is not eligible to book this position.';
+        wp_send_json_error($error_message);
+    }
+
+    // Create booking
+    $result = VatCar_ATC_Booking::save_booking([
+        'cid'         => $controller_cid,
+        'callsign'    => $callsign,
+        'start'       => $start,
+        'end'         => $end,
+        'division'    => 'CAR',
+        'subdivision' => $subdivision,
+        'type'        => 'booking',
+    ]);
+
+    if (is_wp_error($result)) {
+        wp_send_json_error($result->get_error_message());
+    } else {
+        wp_send_json_success('Booking created successfully');
     }
 }
 
@@ -344,6 +419,41 @@ add_action('wp_enqueue_scripts', function() {
     );
 }, 20);
 
+/**
+ * Get the controller dashboard URL.
+ */
+function vatcar_controller_dashboard_url() {
+    return home_url('/my-bookings/');
+}
+
+/**
+ * Append a dashboard ref flag to internal URLs so resource pages can show
+ * a "Back to Controller Dashboard" button only when navigated from dashboard.
+ */
+function vatcar_add_dashboard_ref_to_url($url) {
+    $url = trim((string)$url);
+    if ($url === '' || $url === '#') {
+        return $url;
+    }
+
+    $parsed = wp_parse_url($url);
+    if ($parsed === false) {
+        return $url;
+    }
+
+    // Only tag internal links (relative OR same host).
+    $is_relative = empty($parsed['host']);
+    if (!$is_relative) {
+        $home_host = wp_parse_url(home_url('/'), PHP_URL_HOST);
+        $url_host  = $parsed['host'] ?? '';
+        if ($home_host === '' || $url_host === '' || strcasecmp($home_host, $url_host) !== 0) {
+            return $url;
+        }
+    }
+
+    return add_query_arg('vatcar_from', 'dashboard', $url);
+}
+
 // Update whitelist controller name on user login
 add_action('wp_login', function($user_login, $user) {
     // Get CID from username (VATSIM Connect uses CID as username)
@@ -366,16 +476,20 @@ add_action('admin_enqueue_scripts', function($hook) {
     }
 });
 
-// Database schema
+// Database schema - version-based migrations to prevent data loss
 register_activation_hook(__FILE__, function() {
     global $wpdb;
-    $table = $wpdb->prefix . 'atc_bookings';
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    
+    $current_db_version = get_option('vatcar_db_version', '0');
     $charset_collate = $wpdb->get_charset_collate();
-
+    
+    // Main bookings table
+    $table = $wpdb->prefix . 'atc_bookings';
     $sql = "CREATE TABLE $table (
         id mediumint(9) NOT NULL AUTO_INCREMENT,
-        cid varchar(20) NOT NULL,          -- real controller CID
-        api_cid varchar(20) NULL,          -- service account CID used in API calls
+        cid varchar(20) NOT NULL,
+        api_cid varchar(20) NULL,
         callsign varchar(20) NOT NULL,
         type varchar(20) NOT NULL,
         start datetime NOT NULL,
@@ -383,74 +497,82 @@ register_activation_hook(__FILE__, function() {
         division varchar(50) NOT NULL,
         subdivision varchar(50),
         external_id int NULL,
+        controller_name varchar(100) NULL,
+        created_by_cid varchar(20) NULL,
         PRIMARY KEY  (id),
         KEY callsign_start_end (callsign, start, end),
         KEY external_id (external_id)
     ) $charset_collate;";
-
-    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
     dbDelta($sql);
 
-    // Idempotent column adds for upgrades
-    $columns = $wpdb->get_col($wpdb->prepare(
+    // Add missing columns if needed (idempotent migrations)
+    $booking_columns = $wpdb->get_col($wpdb->prepare(
         "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s",
         $wpdb->dbname, $table
     ));
-    if (!in_array('external_id', $columns)) {
-        $wpdb->query("ALTER TABLE $table ADD COLUMN external_id int NULL");
+    // Ensure controller_name exists in case of legacy installs
+    if (!in_array('controller_name', $booking_columns)) {
+        $wpdb->query("ALTER TABLE $table ADD COLUMN controller_name varchar(100) NULL AFTER external_id");
     }
-    if (!in_array('api_cid', $columns)) {
-        $wpdb->query("ALTER TABLE $table ADD COLUMN api_cid varchar(20) NULL");
-    }
-    if (!in_array('controller_name', $columns)) {
-        $wpdb->query("ALTER TABLE $table ADD COLUMN controller_name varchar(100) NULL");
+    // Ensure created_by_cid exists
+    if (!in_array('created_by_cid', $booking_columns)) {
+        $wpdb->query("ALTER TABLE $table ADD COLUMN created_by_cid varchar(20) NULL AFTER controller_name");
     }
 
-    // Create controller whitelist table
+    // Controller whitelist table - ONLY CREATE, never use dbDelta for updates
     $whitelist_table = $wpdb->prefix . 'atc_controller_whitelist';
-    $whitelist_sql = "CREATE TABLE $whitelist_table (
-        id mediumint(9) NOT NULL AUTO_INCREMENT,
-        cid varchar(20) NOT NULL,
-        notes text NULL,
-        added_by bigint(20) NOT NULL,
-        date_added datetime NOT NULL,
-        expires_at datetime NULL,
-        controller_name varchar(100) NULL,
-        authorization_type varchar(20) DEFAULT 'visitor',
-        PRIMARY KEY (id),
-        UNIQUE KEY cid (cid)
-    ) $charset_collate;";
-    dbDelta($whitelist_sql);
+    $whitelist_exists = $wpdb->get_var("SHOW TABLES LIKE '$whitelist_table'") === $whitelist_table;
     
-    // Add expires_at column if it doesn't exist (for upgrades)
-    $whitelist_columns = $wpdb->get_col($wpdb->prepare(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s",
-        $wpdb->dbname, $whitelist_table
-    ));
-    if (!in_array('expires_at', $whitelist_columns)) {
-        $wpdb->query("ALTER TABLE $whitelist_table ADD COLUMN expires_at datetime NULL");
-    }
-    if (!in_array('controller_name', $whitelist_columns)) {
-        $wpdb->query("ALTER TABLE $whitelist_table ADD COLUMN controller_name varchar(100) NULL");
-    }
-    if (!in_array('authorization_type', $whitelist_columns)) {
-        $wpdb->query("ALTER TABLE $whitelist_table ADD COLUMN authorization_type varchar(20) DEFAULT 'visitor'");
+    if (!$whitelist_exists) {
+        // Table doesn't exist - create it fresh
+        $whitelist_sql = "CREATE TABLE $whitelist_table (
+            id mediumint(9) NOT NULL AUTO_INCREMENT,
+            cid varchar(20) NOT NULL,
+            notes text NULL,
+            added_by bigint(20) NOT NULL,
+            date_added datetime NOT NULL,
+            expires_at datetime NULL,
+            controller_name varchar(100) NULL,
+            authorization_type varchar(20) DEFAULT 'visitor',
+            PRIMARY KEY (id),
+            UNIQUE KEY cid (cid)
+        ) $charset_collate;";
+        $wpdb->query($whitelist_sql);
+    } else {
+        // Table exists - only add missing columns (never use dbDelta)
+        $whitelist_columns = $wpdb->get_col($wpdb->prepare(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s",
+            $wpdb->dbname, $whitelist_table
+        ));
+        if (!in_array('expires_at', $whitelist_columns)) {
+            $wpdb->query("ALTER TABLE $whitelist_table ADD COLUMN expires_at datetime NULL");
+        }
+        if (!in_array('controller_name', $whitelist_columns)) {
+            $wpdb->query("ALTER TABLE $whitelist_table ADD COLUMN controller_name varchar(100) NULL");
+        }
+        if (!in_array('authorization_type', $whitelist_columns)) {
+            $wpdb->query("ALTER TABLE $whitelist_table ADD COLUMN authorization_type varchar(20) DEFAULT 'visitor'");
+        }
     }
 
-    // Create authorized positions table
+    // Authorized positions table
     $positions_table = $wpdb->prefix . 'atc_authorized_positions';
-    $positions_sql = "CREATE TABLE $positions_table (
-        id mediumint(9) NOT NULL AUTO_INCREMENT,
-        authorization_id mediumint(9) NOT NULL,
-        callsign varchar(20) NOT NULL,
-        date_granted datetime NOT NULL,
-        PRIMARY KEY (id),
-        KEY authorization_id (authorization_id),
-        UNIQUE KEY auth_callsign (authorization_id, callsign)
-    ) $charset_collate;";
-    dbDelta($positions_sql);
+    $positions_exists = $wpdb->get_var("SHOW TABLES LIKE '$positions_table'") === $positions_table;
+    
+    if (!$positions_exists) {
+        $positions_sql = "CREATE TABLE $positions_table (
+            id mediumint(9) NOT NULL AUTO_INCREMENT,
+            authorization_id mediumint(9) NOT NULL,
+            callsign varchar(20) NOT NULL,
+            date_granted datetime NOT NULL,
+            PRIMARY KEY (id),
+            KEY authorization_id (authorization_id),
+            UNIQUE KEY auth_callsign (authorization_id, callsign)
+        ) $charset_collate;";
+        $wpdb->query($positions_sql);
+    }
 
-    // Create booking compliance history table
+    // Booking compliance history table
     $history_table = $wpdb->prefix . 'atc_booking_compliance';
     $history_sql = "CREATE TABLE $history_table (
         id mediumint(9) NOT NULL AUTO_INCREMENT,
@@ -462,11 +584,12 @@ register_activation_hook(__FILE__, function() {
         PRIMARY KEY  (id),
         KEY booking_id (booking_id),
         KEY cid (cid),
-        KEY checked_at (checked_at),
-        FOREIGN KEY (booking_id) REFERENCES $table(id) ON DELETE CASCADE
+        KEY checked_at (checked_at)
     ) $charset_collate;";
-    
     dbDelta($history_sql);
+
+    // Update database version
+    update_option('vatcar_db_version', '1.4.1');
 
     // Schedule daily cleanup of expired bookings
     if (!wp_next_scheduled('vatcar_cleanup_expired_bookings')) {
@@ -615,6 +738,15 @@ add_action('admin_menu', function() {
 
     add_submenu_page(
         'vatcar-atc-dashboard',
+        'Dashboard Resources',
+        'Dashboard Resources',
+        'manage_options',
+        'vatcar-atc-resources',
+        'vatcar_atc_resources_page'
+    );
+
+    add_submenu_page(
+        'vatcar-atc-dashboard',
         'Settings',
         'Settings',
         'manage_options',
@@ -692,7 +824,127 @@ add_action('admin_init', function() {
         'vatcar-atc-settings',
         'vatcar_atc_advanced'
     );
+    
+    // Resources configuration (separate settings page)
+    register_setting('vatcar_atc_resources_settings', 'vatcar_resources_enabled');
+    register_setting('vatcar_atc_resources_settings', 'vatcar_resources_config');
 });
+
+/**
+ * Render controller resources configuration fields
+ */
+function vatcar_resources_config_field() {
+    $defaults = [
+        'sops' => [
+            'title' => 'Standard Operating Procedures',
+            'description' => 'Official SOPs for all positions in the FIR',
+            'icon' => '📄',
+            'url' => ''
+        ],
+        'charts' => [
+            'title' => 'Charts & Diagrams',
+            'description' => 'Sector maps, airspace diagrams, and reference materials',
+            'icon' => '📊',
+            'url' => ''
+        ],
+        'training' => [
+            'title' => 'Training Materials',
+            'description' => 'Study guides, practical exercises, and certification resources',
+            'icon' => '📚',
+            'url' => ''
+        ],
+        'loa' => [
+            'title' => 'Letters of Agreement',
+            'description' => 'Coordination procedures with adjacent FIRs and facilities',
+            'icon' => '📝',
+            'url' => ''
+        ],
+        'schedule' => [
+            'title' => 'Full ATC Schedule',
+            'description' => 'View all upcoming controller bookings in the FIR',
+            'icon' => '📅',
+            'url' => '/controller-schedule/'
+        ],
+        'downloads' => [
+            'title' => 'Downloads',
+            'description' => 'Sector files, plugins, and other essential downloads',
+            'icon' => '⬇️',
+            'url' => ''
+        ]
+    ];
+    
+    $config = get_option('vatcar_resources_config', $defaults);
+    
+    // Merge with defaults to ensure all fields exist
+    foreach ($defaults as $key => $default) {
+        if (!isset($config[$key])) {
+            $config[$key] = $default;
+        }
+    }
+    
+    echo '<table class="widefat" style="max-width: 900px;">';
+    echo '<thead><tr><th style="width:15%;">Resource</th><th style="width:25%;">Title</th><th style="width:35%;">URL</th><th style="width:25%;">Description</th></tr></thead>';
+    echo '<tbody>';
+    
+    foreach ($config as $key => $resource) {
+        $title = isset($resource['title']) ? esc_attr($resource['title']) : '';
+        $url = isset($resource['url']) ? esc_attr($resource['url']) : '';
+        $description = isset($resource['description']) ? esc_attr($resource['description']) : '';
+        $icon = isset($resource['icon']) ? esc_html($resource['icon']) : '';
+        
+        echo '<tr>';
+        echo '<td><strong>' . $icon . ' ' . esc_html(ucfirst($key)) . '</strong></td>';
+        echo '<td><input type="text" name="vatcar_resources_config[' . esc_attr($key) . '][title]" value="' . $title . '" class="regular-text" /></td>';
+        echo '<td><input type="text" name="vatcar_resources_config[' . esc_attr($key) . '][url]" value="' . $url . '" class="regular-text" placeholder="Leave empty to hide" /></td>';
+        echo '<td><input type="text" name="vatcar_resources_config[' . esc_attr($key) . '][description]" value="' . $description . '" class="regular-text" /></td>';
+        echo '<input type="hidden" name="vatcar_resources_config[' . esc_attr($key) . '][icon]" value="' . esc_attr($icon) . '" />';
+        echo '</tr>';
+    }
+    
+    echo '</tbody></table>';
+    echo '<p class="description">Leave URL field empty to hide a resource from the dashboard. Supports absolute URLs (/page-slug/) or full URLs (https://example.com/page).</p>';
+}
+
+function vatcar_atc_resources_page() {
+    // Prevent access if site not recognised
+    if (!vatcar_admin_subdivision_check()) {
+        echo '<div class="wrap"><h1>Dashboard Resources</h1></div>';
+        return;
+    }
+    ?>
+    <div class="wrap">
+        <h1>Controller Dashboard Resources</h1>
+        <p>Configure the resource links that appear on the controller dashboard. These provide quick access to important documents and materials for controllers.</p>
+        
+        <form method="post" action="options.php">
+            <?php
+            settings_fields('vatcar_atc_resources_settings');
+            ?>
+            
+            <table class="form-table">
+                <tr>
+                    <th scope="row">Enable Resources Section</th>
+                    <td>
+                        <?php $enabled = get_option('vatcar_resources_enabled', true); ?>
+                        <label>
+                            <input type="checkbox" name="vatcar_resources_enabled" value="1" <?php checked(1, $enabled); ?> />
+                            Show resources section on controller dashboard
+                        </label>
+                        <p class="description">Uncheck to completely hide the resources section from the controller dashboard.</p>
+                    </td>
+                </tr>
+            </table>
+            
+            <h2>Resource Configuration</h2>
+            <p>Configure each resource link below. Leave the URL field empty to hide that specific resource.</p>
+            
+            <?php vatcar_resources_config_field(); ?>
+            
+            <?php submit_button('Save Resource Configuration'); ?>
+        </form>
+    </div>
+    <?php
+}
 
 function vatcar_atc_settings_page() {
     // Prevent access if site not recognised

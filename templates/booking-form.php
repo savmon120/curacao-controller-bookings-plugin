@@ -73,6 +73,21 @@ if (!defined('ABSPATH')) {
   <?php wp_nonce_field('vatcar_new_booking','vatcar_booking_nonce'); ?>
   <input type="hidden" id="input_mode" name="input_mode" value="utc">
 
+  <?php if (current_user_can('manage_options')): ?>
+    <div class="form-row">
+      <label>Controller CID (Admin only):</label>
+      <input
+        type="text"
+        name="controller_cid"
+        inputmode="numeric"
+        pattern="\d+"
+        autocomplete="off"
+        placeholder="e.g. 1234567"
+      >
+      <small>Leave blank to book for yourself (if applicable).</small>
+    </div>
+  <?php endif; ?>
+
   <div class="form-row">
     <label>Station:</label>
     <select name="callsign" required>
@@ -501,4 +516,106 @@ if (!defined('ABSPATH')) {
   refreshAll();
   setInterval(tickClock, 1000);
 })();
+
+// ===== Admin CID Lookup (AJAX) =====
+<?php if (current_user_can('manage_options')): ?>
+(function() {
+  const cidInput = document.querySelector('input[name="controller_cid"]');
+  if (!cidInput) return;
+
+  let lookupTimer = null;
+  const resultDiv = document.createElement('div');
+  resultDiv.style.cssText = 'margin-top:8px; padding:10px; border-radius:6px; font-size:13px; display:none;';
+  cidInput.parentElement.appendChild(resultDiv);
+
+  function showLoading() {
+    resultDiv.style.display = 'block';
+    resultDiv.style.background = 'rgba(0,0,0,0.04)';
+    resultDiv.style.border = '1px solid rgba(0,0,0,0.1)';
+    resultDiv.style.color = '#666';
+    resultDiv.innerHTML = '🔍 Looking up controller...';
+  }
+
+  function showError(msg) {
+    resultDiv.style.display = 'block';
+    resultDiv.style.background = '#fee';
+    resultDiv.style.border = '1px solid #c33';
+    resultDiv.style.color = '#c33';
+    resultDiv.innerHTML = '⚠️ ' + msg;
+  }
+
+  function showSuccess(data) {
+    resultDiv.style.display = 'block';
+    resultDiv.style.background = '#efe';
+    resultDiv.style.border = '1px solid #3c3';
+    resultDiv.style.color = '#060';
+
+    let html = '<strong>✓ Controller Found</strong><br>';
+    html += 'Division: ' + (data.division || 'Unknown') + '<br>';
+    html += 'Subdivision: ' + (data.subdivision || 'Unknown') + '<br>';
+    html += 'Rating: ' + (data.rating_name || 'Unknown') + ' (' + (data.rating || 0) + ')';
+
+    if (data.whitelist_type) {
+      html += '<br><span style="color:#f80; font-weight:600;">✦ ' + data.whitelist_type.toUpperCase() + '</span>';
+      if (data.authorized_positions && data.authorized_positions.length > 0) {
+        html += '<br><small>Authorized: ' + data.authorized_positions.join(', ') + '</small>';
+      }
+    }
+
+    // Warnings
+    const requiredSubdiv = '<?php echo esc_js(vatcar_detect_subdivision()); ?>';
+    if (data.division !== 'CAR' && !data.whitelist_type) {
+      html += '<br><span style="color:#c33; font-weight:600;">⚠ Not in VATCAR division</span>';
+    }
+    if (data.subdivision !== requiredSubdiv && !data.whitelist_type) {
+      html += '<br><span style="color:#c33; font-weight:600;">⚠ Wrong subdivision</span>';
+    }
+
+    resultDiv.innerHTML = html;
+  }
+
+  function lookupController(cid) {
+    if (!cid || !/^\d{1,10}$/.test(cid)) {
+      resultDiv.style.display = 'none';
+      return;
+    }
+
+    showLoading();
+
+    const formData = new FormData();
+    formData.append('action', 'lookup_controller');
+    formData.append('cid', cid);
+    formData.append('vatcar_lookup_controller_nonce', '<?php echo esc_attr( wp_create_nonce( "vatcar_lookup_controller" ) ); ?>');
+
+    fetch('<?php echo esc_url(admin_url("admin-ajax.php")); ?>', {
+      method: 'POST',
+      body: formData,
+    })
+    .then(r => r.json())
+    .then(resp => {
+      if (resp.success) {
+        showSuccess(resp.data);
+      } else {
+        showError(resp.data || 'Failed to lookup controller');
+      }
+    })
+    .catch(err => {
+      showError('Network error');
+      console.error(err);
+    });
+  }
+
+  cidInput.addEventListener('input', function() {
+    clearTimeout(lookupTimer);
+    lookupTimer = setTimeout(() => {
+      lookupController(cidInput.value.trim());
+    }, 600);
+  });
+
+  // Initial check if field has a value
+  if (cidInput.value.trim()) {
+    lookupController(cidInput.value.trim());
+  }
+})();
+<?php endif; ?>
 </script>
