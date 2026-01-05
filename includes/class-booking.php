@@ -472,7 +472,7 @@ class VatCar_ATC_Booking {
      * 
      * @param string $cid Controller CID
      * @param string $callsign Position callsign (optional, for position-specific checks)
-     * @param bool $is_admin Whether the booking is being created by an admin
+     * @param bool $is_admin Whether the booking is being created by an admin (reserved for future use)
      * @return array ['eligible' => bool, 'error' => WP_Error|null, 'warnings' => array]
      */
     public static function validate_controller_eligibility($cid, $callsign = '', $is_admin = false) {
@@ -583,7 +583,7 @@ class VatCar_ATC_Booking {
             $position_type = strtoupper(end($position_type));
             
             // Debug info for troubleshooting authorization issues
-            $debug_msg = "Controller needs at least {$required_name} rating to book {$position_type} positions.";
+            $debug_msg = "Insufficient rating: Controller needs at least {$required_name} rating to book {$position_type} positions.";
             if (function_exists('vatcar_atc_is_debug_enabled') && vatcar_atc_is_debug_enabled()) {
                 // Get authorized positions for debugging
                 $auth_entry = self::get_whitelist_entry($cid);
