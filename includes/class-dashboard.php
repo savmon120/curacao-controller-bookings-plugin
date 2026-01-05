@@ -178,7 +178,7 @@ class VatCar_ATC_Dashboard {
             <div style="background: white; padding: 30px; border-radius: 8px; max-width: 600px; width: 90%; margin: 40px auto; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                     <h2 style="margin: 0;">Create New Booking</h2>
-                    <button type="button" style="background: none; border: none; font-size: 28px; cursor: pointer; color: #666; line-height: 1;" onclick="document.getElementById('new-booking-modal').style.display='none';">&times;</button>
+                    <button type="button" id="new-booking-modal-close" style="background: none; border: none; font-size: 28px; cursor: pointer; color: #666; line-height: 1;">&times;</button>
                 </div>
                 
                 <div id="new-booking-message" style="display: none; padding: 12px; border-radius: 5px; margin-bottom: 15px;"></div>
@@ -254,7 +254,7 @@ class VatCar_ATC_Dashboard {
                     </div>
 
                     <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                        <button type="button" class="button" onclick="document.getElementById('new-booking-modal').style.display='none';">Cancel</button>
+                        <button type="button" id="new-booking-modal-cancel" class="button">Cancel</button>
                         <button type="submit" class="button button-primary">Create Booking</button>
                     </div>
                 </form>
@@ -264,7 +264,7 @@ class VatCar_ATC_Dashboard {
         <!-- Modal for compliance history -->
         <div id="compliance-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center;">
             <div style="background: white; padding: 20px; border-radius: 5px; max-width: 800px; width: 90%; max-height: 80vh; overflow-y: auto;">
-                <button type="button" style="float: right; background: none; border: none; font-size: 24px; cursor: pointer;" onclick="document.getElementById('compliance-modal').style.display='none';">&times;</button>
+                <button type="button" id="compliance-modal-close" style="float: right; background: none; border: none; font-size: 24px; cursor: pointer;">&times;</button>
                 <h2 id="modal-title">Controller Compliance Record</h2>
                 <p style="color: #666; margin-top: 5px;" id="modal-subtitle">Complete booking history and punctuality tracking</p>
                 <div id="modal-content" style="margin-top: 20px;">
@@ -298,6 +298,31 @@ class VatCar_ATC_Dashboard {
                     newBookingForm.reset();
                     messageDiv.style.display = 'none';
                     cidLookupDiv.innerHTML = '';
+                });
+            }
+
+            // Close new booking modal - close button
+            const newBookingModalClose = document.getElementById('new-booking-modal-close');
+            if (newBookingModalClose) {
+                newBookingModalClose.addEventListener('click', function() {
+                    newBookingModal.style.display = 'none';
+                });
+            }
+
+            // Close new booking modal - cancel button
+            const newBookingModalCancel = document.getElementById('new-booking-modal-cancel');
+            if (newBookingModalCancel) {
+                newBookingModalCancel.addEventListener('click', function() {
+                    newBookingModal.style.display = 'none';
+                });
+            }
+
+            // Close compliance modal
+            const complianceModalClose = document.getElementById('compliance-modal-close');
+            const complianceModal = document.getElementById('compliance-modal');
+            if (complianceModalClose && complianceModal) {
+                complianceModalClose.addEventListener('click', function() {
+                    complianceModal.style.display = 'none';
                 });
             }
 
