@@ -585,7 +585,7 @@ if (!defined('ABSPATH')) {
     const formData = new FormData();
     formData.append('action', 'lookup_controller');
     formData.append('cid', cid);
-    formData.append('vatcar_lookup_controller_nonce', '<?php echo wp_create_nonce("vatcar_lookup_controller"); ?>');
+    formData.append('vatcar_lookup_controller_nonce', '<?php echo esc_attr( wp_create_nonce( "vatcar_lookup_controller" ) ); ?>');
 
     fetch('<?php echo esc_url(admin_url("admin-ajax.php")); ?>', {
       method: 'POST',
