@@ -307,6 +307,15 @@ function vatcar_ajax_create_booking_from_dashboard() {
         wp_send_json_error(vatcar_unrecognised_site_error(false));
     }
 
+    // Validate controller eligibility before attempting to create booking
+    $is_admin = current_user_can('manage_options');
+    $eligibility = VatCar_ATC_Booking::validate_controller_eligibility($controller_cid, $callsign, $is_admin);
+    
+    if (!$eligibility['eligible']) {
+        $error_message = $eligibility['error'] ? $eligibility['error']->get_error_message() : 'Controller is not eligible to book this position.';
+        wp_send_json_error($error_message);
+    }
+
     // Create booking
     $result = VatCar_ATC_Booking::save_booking([
         'cid'         => $controller_cid,

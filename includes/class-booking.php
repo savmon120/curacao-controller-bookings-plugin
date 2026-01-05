@@ -467,6 +467,154 @@ class VatCar_ATC_Booking {
     }
 
     /**
+     * Validate controller eligibility for a given callsign.
+     * Returns array with 'eligible' boolean and optional 'error' or 'warnings' fields.
+     * 
+     * @param string $cid Controller CID
+     * @param string $callsign Position callsign (optional, for position-specific checks)
+     * @param bool $is_admin Whether the booking is being created by an admin (reserved for future use)
+     * @return array ['eligible' => bool, 'error' => WP_Error|null, 'warnings' => array]
+     */
+    public static function validate_controller_eligibility($cid, $callsign = '', $is_admin = false) {
+        $warnings = [];
+        
+        // Validate the controller division and rating
+        $controller_data = self::get_controller_data($cid);
+        if (is_wp_error($controller_data)) {
+            return [
+                'eligible' => false,
+                'error' => $controller_data,
+                'warnings' => []
+            ];
+        }
+        
+        // Check whitelist status and type
+        $whitelist_entry = self::get_whitelist_entry($cid);
+        $is_visitor = $whitelist_entry && $whitelist_entry->authorization_type === 'visitor';
+        $is_solo_cert = $whitelist_entry && $whitelist_entry->authorization_type === 'solo';
+        
+        // If no callsign provided, just return basic eligibility without position-specific checks
+        if (empty($callsign)) {
+            // Check division/subdivision for basic eligibility
+            if (!$is_visitor) {
+                if (empty($controller_data['division_id']) || $controller_data['division_id'] !== 'CAR') {
+                    if (!$is_solo_cert) {
+                        $warnings[] = 'Controller is not in the VATCAR division. Division membership is required unless authorized as a visitor or solo certification holder.';
+                    }
+                }
+                $required_subdivision = vatcar_detect_subdivision();
+                if (!empty($required_subdivision) && (empty($controller_data['subdivision_id']) || $controller_data['subdivision_id'] !== $required_subdivision)) {
+                    if (!$is_solo_cert) {
+                        $sub_name = vatcar_get_subdivision_name($required_subdivision);
+                        $warnings[] = "Controller is not in the {$sub_name} subdivision. Subdivision membership is required unless authorized as a visitor or solo certification holder.";
+                    }
+                }
+            }
+            
+            return [
+                'eligible' => true,
+                'error' => null,
+                'warnings' => $warnings
+            ];
+        }
+        
+        // Position-specific checks
+        $is_authorized_for_position = self::is_authorized_for_position($cid, $callsign);
+        
+        if ($is_visitor) {
+            // Visitors can ONLY book their explicitly authorized positions
+            if (!$is_authorized_for_position) {
+                return [
+                    'eligible' => false,
+                    'error' => new WP_Error('unauthorized_position', 'Not authorized to book this position. Visitors may only book explicitly authorized positions.'),
+                    'warnings' => []
+                ];
+            }
+            // Bypass division/subdivision checks for visitors
+        } else {
+            // Non-visitors (including solo cert holders) must be in correct division/subdivision
+            if (empty($controller_data['division_id']) || $controller_data['division_id'] !== 'CAR') {
+                // Check if they have solo cert for this position
+                if ($is_solo_cert && $is_authorized_for_position) {
+                    // Has solo cert - allow it (bypass division check)
+                } else {
+                    return [
+                        'eligible' => false,
+                        'error' => new WP_Error('invalid_division', 'Controller must be in the VATCAR division to book a position.'),
+                        'warnings' => []
+                    ];
+                }
+            }
+            $required_subdivision = vatcar_detect_subdivision();
+            if (empty($required_subdivision)) {
+                return [
+                    'eligible' => false,
+                    'error' => new WP_Error('site_config_error', vatcar_unrecognised_site_error(false)),
+                    'warnings' => []
+                ];
+            }
+            if (empty($controller_data['subdivision_id']) || $controller_data['subdivision_id'] !== $required_subdivision) {
+                // Check if they have solo cert for this position
+                if ($is_solo_cert && $is_authorized_for_position) {
+                    // Has solo cert - allow it (bypass subdivision check)
+                } else {
+                    $sub_name = vatcar_get_subdivision_name($required_subdivision);
+                    return [
+                        'eligible' => false,
+                        'error' => new WP_Error('invalid_subdivision', "Controller must be in the {$sub_name} subdivision to book a position."),
+                        'warnings' => []
+                    ];
+                }
+            }
+        }
+        
+        // Rating check - solo cert provides ADDITIONAL positions beyond base rating
+        $required_rating = self::get_position_required_rating($callsign);
+        $controller_rating = isset($controller_data['rating']) ? intval($controller_data['rating']) : 0;
+        
+        // Check if they meet rating requirement OR have authorization for this position
+        $has_sufficient_rating = ($controller_rating >= $required_rating);
+        
+        if (!$has_sufficient_rating && !$is_authorized_for_position) {
+            // They don't have the rating AND they're not authorized for this position
+            $rating_names = [2 => 'S1', 3 => 'S2', 4 => 'S3', 5 => 'C1'];
+            $required_name = $rating_names[$required_rating] ?? 'S1';
+            $position_type = explode('_', $callsign);
+            $position_type = strtoupper(end($position_type));
+            
+            // Debug info for troubleshooting authorization issues
+            $debug_msg = "Insufficient rating: Controller needs at least {$required_name} rating to book {$position_type} positions.";
+            if (function_exists('vatcar_atc_is_debug_enabled') && vatcar_atc_is_debug_enabled()) {
+                // Get authorized positions for debugging
+                $auth_entry = self::get_whitelist_entry($cid);
+                if ($auth_entry) {
+                    $auth_positions = self::get_authorized_positions($auth_entry->id);
+                    $debug_msg .= sprintf(
+                        " [Debug: Type=%s, Authorized positions: %s, Trying to book: %s]",
+                        $auth_entry->authorization_type,
+                        !empty($auth_positions) ? implode(', ', $auth_positions) : 'ALL (none specified)',
+                        $callsign
+                    );
+                } else {
+                    $debug_msg .= " [Debug: No whitelist entry found for CID {$cid}]";
+                }
+            }
+            
+            return [
+                'eligible' => false,
+                'error' => new WP_Error('insufficient_rating', $debug_msg),
+                'warnings' => []
+            ];
+        }
+        
+        return [
+            'eligible' => true,
+            'error' => null,
+            'warnings' => $warnings
+        ];
+    }
+
+    /**
      * Create booking via VATSIM API, then cache locally.
      */
     public static function save_booking($data) {
@@ -500,84 +648,10 @@ class VatCar_ATC_Booking {
             return new WP_Error('unauthorized', 'You can only book for your own CID.');
         }
 
-        // Validate the BOOKED controller division and rating
-        $controller_data = self::get_controller_data($booked_cid);
-        if (is_wp_error($controller_data)) {
-            return $controller_data;
-        }
-        
-        // Check whitelist status and type
-        $whitelist_entry = self::get_whitelist_entry($booked_cid);
-        $is_visitor = $whitelist_entry && $whitelist_entry->authorization_type === 'visitor';
-        $is_solo_cert = $whitelist_entry && $whitelist_entry->authorization_type === 'solo';
-        
-        // Check position-specific authorization
-        $is_authorized_for_position = self::is_authorized_for_position($booked_cid, $data['callsign']);
-        
-        if ($is_visitor) {
-            // Visitors can ONLY book their explicitly authorized positions
-            if (!$is_authorized_for_position) {
-                return new WP_Error('unauthorized_position', 'You are not authorized to book this position. Visitors may only book explicitly authorized positions.');
-            }
-            // Bypass division/subdivision checks for visitors
-        } else {
-            // Non-visitors (including solo cert holders) must be in correct division/subdivision
-            if (empty($controller_data['division_id']) || $controller_data['division_id'] !== 'CAR') {
-                // Check if they have solo cert for this position
-                if ($is_solo_cert && $is_authorized_for_position) {
-                    // Has solo cert - allow it (bypass division check)
-                } else {
-                    return new WP_Error('invalid_division', 'You must be in the VATCAR division to book a position.');
-                }
-            }
-            $required_subdivision = vatcar_detect_subdivision();
-            if (empty($required_subdivision)) {
-                return new WP_Error('site_config_error', vatcar_unrecognised_site_error(false));
-            }
-            if (empty($controller_data['subdivision_id']) || $controller_data['subdivision_id'] !== $required_subdivision) {
-                // Check if they have solo cert for this position
-                if ($is_solo_cert && $is_authorized_for_position) {
-                    // Has solo cert - allow it (bypass subdivision check)
-                } else {
-                    $sub_name = vatcar_get_subdivision_name($required_subdivision);
-                    return new WP_Error('invalid_subdivision', 'You must be in the ' . $sub_name . ' subdivision to book a position.');
-                }
-            }
-        }
-        
-        // Rating check - solo cert provides ADDITIONAL positions beyond base rating
-        $required_rating = self::get_position_required_rating($data['callsign']);
-        $controller_rating = isset($controller_data['rating']) ? intval($controller_data['rating']) : 0;
-        
-        // Check if they meet rating requirement OR have authorization for this position
-        $has_sufficient_rating = ($controller_rating >= $required_rating);
-        
-        if (!$has_sufficient_rating && !$is_authorized_for_position) {
-            // They don't have the rating AND they're not authorized for this position
-            $rating_names = [2 => 'S1', 3 => 'S2', 4 => 'S3', 5 => 'C1'];
-            $required_name = $rating_names[$required_rating] ?? 'S1';
-            $position_type = explode('_', $data['callsign']);
-            $position_type = strtoupper(end($position_type));
-            
-            // Debug info for troubleshooting authorization issues
-            $debug_msg = "You need at least {$required_name} rating to book {$position_type} positions.";
-            if (function_exists('vatcar_atc_is_debug_enabled') && vatcar_atc_is_debug_enabled()) {
-                // Get authorized positions for debugging
-                $auth_entry = self::get_whitelist_entry($booked_cid);
-                if ($auth_entry) {
-                    $auth_positions = self::get_authorized_positions($auth_entry->id);
-                    $debug_msg .= sprintf(
-                        " [Debug: Type=%s, Authorized positions: %s, Trying to book: %s]",
-                        $auth_entry->authorization_type,
-                        !empty($auth_positions) ? implode(', ', $auth_positions) : 'ALL (none specified)',
-                        $data['callsign']
-                    );
-                } else {
-                    $debug_msg .= " [Debug: No whitelist entry found for CID {$booked_cid}]";
-                }
-            }
-            
-            return new WP_Error('insufficient_rating', $debug_msg);
+        // Validate controller eligibility using centralized validation
+        $eligibility = self::validate_controller_eligibility($booked_cid, $data['callsign'], $is_admin);
+        if (!$eligibility['eligible']) {
+            return $eligibility['error'];
         }
 
         // Get controller name from WordPress
@@ -1128,6 +1202,10 @@ class VatCar_ATC_Booking {
             $auth_positions = self::get_authorized_positions($whitelist_entry->id);
         }
 
+        // Validate basic eligibility (without specific callsign)
+        $is_admin = current_user_can('manage_options');
+        $eligibility = self::validate_controller_eligibility($cid, '', $is_admin);
+
         // Build response
         $rating_names = [1 => 'OBS', 2 => 'S1', 3 => 'S2', 4 => 'S3', 5 => 'C1', 7 => 'I1', 8 => 'I3', 10 => 'SUP', 11 => 'ADM'];
         $response = [
@@ -1138,6 +1216,7 @@ class VatCar_ATC_Booking {
             'rating_name' => $rating_names[$controller_data['rating'] ?? 0] ?? 'Unknown',
             'whitelist_type' => $auth_type,
             'authorized_positions' => $auth_positions,
+            'eligibility_warnings' => $eligibility['warnings'] ?? [],
         ];
 
         wp_send_json_success($response);
