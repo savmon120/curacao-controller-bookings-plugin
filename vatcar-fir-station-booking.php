@@ -496,11 +496,16 @@ register_activation_hook(__FILE__, function() {
     ) $charset_collate;";
     dbDelta($sql);
 
-    // Add created_by_cid column if missing (idempotent migration)
+    // Add missing columns if needed (idempotent migrations)
     $booking_columns = $wpdb->get_col($wpdb->prepare(
         "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s",
         $wpdb->dbname, $table
     ));
+    // Ensure controller_name exists in case of legacy installs
+    if (!in_array('controller_name', $booking_columns)) {
+        $wpdb->query("ALTER TABLE $table ADD COLUMN controller_name varchar(100) NULL AFTER external_id");
+    }
+    // Ensure created_by_cid exists
     if (!in_array('created_by_cid', $booking_columns)) {
         $wpdb->query("ALTER TABLE $table ADD COLUMN created_by_cid varchar(20) NULL AFTER controller_name");
     }
