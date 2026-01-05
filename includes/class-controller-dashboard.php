@@ -261,7 +261,13 @@ class VatCar_Controller_Dashboard {
                 
                 <div class="resource-grid">
                     <?php foreach ($active_resources as $key => $resource): ?>
-                        <a href="<?php echo esc_url($resource['url']); ?>" class="resource-card <?php echo esc_attr($key); ?>">
+                        <?php
+                        $resource_url = $resource['url'];
+                        if (function_exists('vatcar_add_dashboard_ref_to_url')) {
+                            $resource_url = vatcar_add_dashboard_ref_to_url($resource_url);
+                        }
+                        ?>
+                        <a href="<?php echo esc_url($resource_url); ?>" class="resource-card <?php echo esc_attr($key); ?>">
                             <div class="resource-icon"><?php echo esc_html($resource['icon']); ?></div>
                             <div class="resource-content">
                                 <h3><?php echo esc_html($resource['title']); ?></h3>

@@ -10,6 +10,26 @@ if (!defined('ABSPATH')) {
 class VatCar_ATC_Dashboard {
 
     /**
+     * Get the most recent compliance status recorded for a booking.
+     * Returns a string status or null if none exists.
+     */
+    private static function get_latest_booking_compliance_status($booking_id) {
+        global $wpdb;
+
+        $history_table = $wpdb->prefix . 'atc_booking_compliance';
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT status FROM $history_table WHERE booking_id = %d ORDER BY checked_at DESC LIMIT 1",
+            (int)$booking_id
+        ));
+
+        if (!$row || empty($row->status)) {
+            return null;
+        }
+
+        return (string)$row->status;
+    }
+
+    /**
      * Render the manage bookings dashboard
      */
     public static function render_dashboard() {
@@ -311,6 +331,30 @@ class VatCar_ATC_Dashboard {
 
         if (!$cid || !$callsign || !$start) {
             wp_send_json_error('Missing parameters');
+        }
+
+        // If the booking is in the past and we already have compliance history, prefer that
+        // over live VATSIM checks (which will frequently report past bookings as no_show).
+        if ($booking_id > 0) {
+            global $wpdb;
+            $bookings_table = $wpdb->prefix . 'atc_bookings';
+            $booking = $wpdb->get_row($wpdb->prepare(
+                "SELECT start, end FROM $bookings_table WHERE id = %d",
+                (int)$booking_id
+            ));
+
+            if ($booking && !empty($booking->end)) {
+                $now_gmt = (int) current_time('timestamp', true);
+                $end_ts  = strtotime((string)$booking->end . ' UTC');
+
+                if ($end_ts && $end_ts < $now_gmt) {
+                    $latest = self::get_latest_booking_compliance_status($booking_id);
+                    if ($latest !== null) {
+                        // For past bookings, do not record a new "current" status.
+                        wp_send_json_success(['status' => $latest]);
+                    }
+                }
+            }
         }
 
         $status = VatCar_ATC_Booking::is_controller_logged_in_on_time($cid, $callsign, $start);

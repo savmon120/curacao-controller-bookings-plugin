@@ -346,7 +346,7 @@ class VatCar_ATC_Schedule {
 ';
         echo '
         <style>
-        .atc-slot-cta{ text-align:center; margin:24px 0; }
+        .atc-slot-cta{ display:flex; justify-content:center; gap:12px; flex-wrap:wrap; margin:24px 0; }
         .atc-slot-btn{
         display:inline-block;
         padding:10px 18px;
@@ -366,6 +366,7 @@ class VatCar_ATC_Schedule {
 
         <div class="atc-slot-cta">
         <a class="atc-slot-btn" href="/book-a-slot/">Book Your ATC Slot</a>
+        <a class="atc-slot-btn" href="' . esc_url(vatcar_controller_dashboard_url()) . '">Visit Dashboard</a>
         </div>
         ';
         echo '<table>';

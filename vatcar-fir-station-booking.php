@@ -344,6 +344,41 @@ add_action('wp_enqueue_scripts', function() {
     );
 }, 20);
 
+/**
+ * Get the controller dashboard URL.
+ */
+function vatcar_controller_dashboard_url() {
+    return home_url('/my-bookings/');
+}
+
+/**
+ * Append a dashboard ref flag to internal URLs so resource pages can show
+ * a "Back to Controller Dashboard" button only when navigated from dashboard.
+ */
+function vatcar_add_dashboard_ref_to_url($url) {
+    $url = trim((string)$url);
+    if ($url === '' || $url === '#') {
+        return $url;
+    }
+
+    $parsed = wp_parse_url($url);
+    if ($parsed === false) {
+        return $url;
+    }
+
+    // Only tag internal links (relative OR same host).
+    $is_relative = empty($parsed['host']);
+    if (!$is_relative) {
+        $home_host = wp_parse_url(home_url('/'), PHP_URL_HOST);
+        $url_host  = $parsed['host'] ?? '';
+        if ($home_host === '' || $url_host === '' || strcasecmp($home_host, $url_host) !== 0) {
+            return $url;
+        }
+    }
+
+    return add_query_arg('vatcar_from', 'dashboard', $url);
+}
+
 // Update whitelist controller name on user login
 add_action('wp_login', function($user_login, $user) {
     // Get CID from username (VATSIM Connect uses CID as username)

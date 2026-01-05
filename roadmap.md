@@ -50,7 +50,7 @@
 [] **Calendar grid view** - Month/week calendar view with visual timeline for bookings
 
 ## Known Issues / Bug Fixes Needed
-[] **Dashboard status display bug** - Past bookings in ATC Bookings dashboard show "no show" even when compliance table has "on_time" records
+[x] **Dashboard status display bug** - Past bookings in ATC Bookings dashboard show "no show" even when compliance table has "on_time" records
    - Root cause: Dashboard queries real-time VATSIM status instead of using historical compliance data
    - Fix approach: Check compliance table first for past bookings, only query live data for current/upcoming bookings
    - Priority: Medium (display issue only, doesn't affect data integrity)
