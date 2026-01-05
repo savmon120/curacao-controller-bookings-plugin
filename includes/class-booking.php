@@ -1106,7 +1106,7 @@ class VatCar_ATC_Booking {
         }
 
         if (!current_user_can('manage_options')) {
-            wp_send_json_error('Unauthorized');
+            wp_send_json_error('Unauthorized', 403);
         }
 
         $cid = sanitize_text_field($_POST['cid'] ?? '');
