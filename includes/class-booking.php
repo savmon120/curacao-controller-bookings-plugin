@@ -11,14 +11,16 @@ class VatCar_ATC_Booking {
     public static function render_form() {
         ob_start();
 
-        // Require login and controller role
+        // Require login and controller role (or admin)
         if (!is_user_logged_in()) {
             echo '<p>You must be logged in to book a station.</p>';
             return ob_get_clean();
         }
         
         $user = wp_get_current_user();
-        if (!in_array('controller', (array) $user->roles, true)) {
+        $is_admin = current_user_can('manage_options');
+        $is_controller = in_array('controller', (array) $user->roles, true);
+        if (!$is_controller && !$is_admin) {
             echo '<p>You do not have permission to book ATC stations.</p>';
             return ob_get_clean();
         }
@@ -53,9 +55,28 @@ class VatCar_ATC_Booking {
                     return ob_get_clean();
                 }
 
+                $cid = self::vatcar_get_cid();
+                if ($is_admin) {
+                    $posted_cid = sanitize_text_field($_POST['controller_cid'] ?? '');
+                    $posted_cid = trim((string)$posted_cid);
+
+                    // If an admin is not a controller, require a target CID.
+                    if (!$is_controller && $posted_cid === '') {
+                        echo '<p style="color:red;">Error: Please enter a Controller CID.</p>';
+                        return ob_get_clean();
+                    }
+
+                    if ($posted_cid !== '') {
+                        if (!preg_match('/^\d{1,10}$/', $posted_cid)) {
+                            echo '<p style="color:red;">Error: Invalid Controller CID.</p>';
+                            return ob_get_clean();
+                        }
+                        $cid = $posted_cid;
+                    }
+                }
+
                 $result = self::save_booking([
-                    // Always use the authenticated controller's CID, do not trust POST
-                    'cid'         => self::vatcar_get_cid(),
+                    'cid'         => $cid,
                     'callsign'    => sanitize_text_field($_POST['callsign'] ?? ''),
                     'start'       => $start,
                     'end'         => $end,
@@ -468,25 +489,30 @@ class VatCar_ATC_Booking {
             return new WP_Error('overlap', 'Booking overlaps with existing one.');
         }
 
-        // Confirm caller identity
-        $current_cid = self::vatcar_get_cid();
-        if ((string)$data['cid'] !== (string)$current_cid) {
+        // Confirm caller identity (admins may book on behalf)
+        $actor_cid = self::vatcar_get_cid();
+        $is_admin = current_user_can('manage_options');
+        $booked_cid = isset($data['cid']) ? trim((string)$data['cid']) : '';
+        if ($booked_cid === '') {
+            return new WP_Error('missing_cid', 'Missing controller CID.');
+        }
+        if ($booked_cid !== (string)$actor_cid && !$is_admin) {
             return new WP_Error('unauthorized', 'You can only book for your own CID.');
         }
 
-        // Validate controller division and rating
-        $controller_data = self::get_controller_data($current_cid);
+        // Validate the BOOKED controller division and rating
+        $controller_data = self::get_controller_data($booked_cid);
         if (is_wp_error($controller_data)) {
             return $controller_data;
         }
         
         // Check whitelist status and type
-        $whitelist_entry = self::get_whitelist_entry($current_cid);
+        $whitelist_entry = self::get_whitelist_entry($booked_cid);
         $is_visitor = $whitelist_entry && $whitelist_entry->authorization_type === 'visitor';
         $is_solo_cert = $whitelist_entry && $whitelist_entry->authorization_type === 'solo';
         
         // Check position-specific authorization
-        $is_authorized_for_position = self::is_authorized_for_position($current_cid, $data['callsign']);
+        $is_authorized_for_position = self::is_authorized_for_position($booked_cid, $data['callsign']);
         
         if ($is_visitor) {
             // Visitors can ONLY book their explicitly authorized positions
@@ -537,7 +563,7 @@ class VatCar_ATC_Booking {
             $debug_msg = "You need at least {$required_name} rating to book {$position_type} positions.";
             if (function_exists('vatcar_atc_is_debug_enabled') && vatcar_atc_is_debug_enabled()) {
                 // Get authorized positions for debugging
-                $auth_entry = self::get_whitelist_entry($current_cid);
+                $auth_entry = self::get_whitelist_entry($booked_cid);
                 if ($auth_entry) {
                     $auth_positions = self::get_authorized_positions($auth_entry->id);
                     $debug_msg .= sprintf(
@@ -547,7 +573,7 @@ class VatCar_ATC_Booking {
                         $data['callsign']
                     );
                 } else {
-                    $debug_msg .= " [Debug: No whitelist entry found for CID {$current_cid}]";
+                    $debug_msg .= " [Debug: No whitelist entry found for CID {$booked_cid}]";
                 }
             }
             
@@ -555,10 +581,10 @@ class VatCar_ATC_Booking {
         }
 
         // Get controller name from WordPress
-        $controller_name = self::get_controller_name($current_cid);
+        $controller_name = self::get_controller_name($booked_cid);
         
         // Service account CID for API calls
-        $api_cid = defined('VATCAR_VATSIM_API_CID') ? (string)VATCAR_VATSIM_API_CID : (string)$current_cid;
+        $api_cid = defined('VATCAR_VATSIM_API_CID') ? (string)constant('VATCAR_VATSIM_API_CID') : (string)$booked_cid;
 
         // Remote API call: POST /booking
         $endpoint = VATCAR_VATSIM_API_BASE . '/api/booking';
@@ -591,12 +617,12 @@ class VatCar_ATC_Booking {
             return new WP_Error('api_error', $msg);
         }
 
-        // Cache locally with external_id. Preserve the real controller's cid, store api_cid separately.
+        // Cache locally with external_id. Preserve the booked controller's cid, store api_cid separately.
         global $wpdb;
         $table = $wpdb->prefix . 'atc_bookings';
         
-        $wpdb->insert($table, [
-            'cid'              => (string)$current_cid,   // real controller
+        $insert_result = $wpdb->insert($table, [
+            'cid'              => (string)$booked_cid,    // booked controller
             'api_cid'          => (string)$api_cid,       // service account
             'callsign'         => (string)$data['callsign'],
             'type'             => 'booking',
@@ -606,7 +632,24 @@ class VatCar_ATC_Booking {
             'subdivision'      => (string)$data['subdivision'],
             'external_id'      => (int)$body['id'],
             'controller_name'  => (string)$controller_name,
+            'created_by_cid'   => (string)$actor_cid,     // who created this booking
         ]);
+
+        if ($insert_result === false) {
+            error_log('VATCAR Booking DB Insert Failed: ' . $wpdb->last_error);
+            error_log('VATCAR Booking Data: ' . print_r([
+                'cid' => $booked_cid,
+                'api_cid' => $api_cid,
+                'callsign' => $data['callsign'],
+                'start' => $data['start'],
+                'end' => $data['end'],
+                'division' => $data['division'],
+                'subdivision' => $data['subdivision'],
+                'external_id' => $body['id'],
+                'created_by_cid' => $actor_cid,
+            ], true));
+            return new WP_Error('db_insert_failed', 'Booking created on VATSIM but failed to cache locally: ' . $wpdb->last_error);
+        }
 
         return true;
     }
@@ -907,7 +950,7 @@ class VatCar_ATC_Booking {
      */
     public static function vatcar_get_cid() {
         if (function_exists('vatsim_connect_get_cid')) {
-            return vatsim_connect_get_cid(); // production VATSIM Connect
+            return (string)call_user_func('vatsim_connect_get_cid'); // production VATSIM Connect
         }
         $host = isset($_SERVER['HTTP_HOST']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST'])) : '';
         if (strpos($host, 'curacao.vatcar.local') !== false || strpos($host, 'curacao-fir-vatcar.local') !== false) {
@@ -1049,5 +1092,48 @@ class VatCar_ATC_Booking {
         ));
         
         return $records ?: [];
+    }
+
+    /**
+     * AJAX handler: lookup controller by CID
+     * Returns controller division, subdivision, rating, and eligibility warnings
+     */
+    public static function ajax_lookup_controller() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized');
+        }
+
+        $cid = sanitize_text_field($_POST['cid'] ?? '');
+        if (empty($cid) || !preg_match('/^\d{1,10}$/', $cid)) {
+            wp_send_json_error('Invalid CID format');
+        }
+
+        // Fetch controller data from VATSIM API
+        $controller_data = self::get_controller_data($cid);
+        if (is_wp_error($controller_data)) {
+            wp_send_json_error($controller_data->get_error_message());
+        }
+
+        // Check whitelist status
+        $whitelist_entry = self::get_whitelist_entry($cid);
+        $auth_type = $whitelist_entry ? $whitelist_entry->authorization_type : null;
+        $auth_positions = [];
+        if ($whitelist_entry) {
+            $auth_positions = self::get_authorized_positions($whitelist_entry->id);
+        }
+
+        // Build response
+        $rating_names = [1 => 'OBS', 2 => 'S1', 3 => 'S2', 4 => 'S3', 5 => 'C1', 7 => 'I1', 8 => 'I3', 10 => 'SUP', 11 => 'ADM'];
+        $response = [
+            'cid' => $cid,
+            'division' => $controller_data['division_id'] ?? 'Unknown',
+            'subdivision' => $controller_data['subdivision_id'] ?? 'Unknown',
+            'rating' => isset($controller_data['rating']) ? (int)$controller_data['rating'] : 0,
+            'rating_name' => $rating_names[$controller_data['rating'] ?? 0] ?? 'Unknown',
+            'whitelist_type' => $auth_type,
+            'authorized_positions' => $auth_positions,
+        ];
+
+        wp_send_json_success($response);
     }
 }

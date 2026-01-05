@@ -17,7 +17,10 @@ class VatCar_Controller_Dashboard {
         }
 
         $user = wp_get_current_user();
-        if (!in_array('controller', (array) $user->roles, true)) {
+        $is_admin = current_user_can('manage_options');
+        $is_controller = in_array('controller', (array) $user->roles, true);
+        
+        if (!$is_controller && !$is_admin) {
             return '<p>You do not have permission to view controller bookings.</p>';
         }
 
@@ -28,7 +31,7 @@ class VatCar_Controller_Dashboard {
 
         global $wpdb;
         $table = $wpdb->prefix . 'atc_bookings';
-        $now = current_time('mysql');
+        $now = gmdate('Y-m-d H:i:s'); // Use GMT to match booking storage timezone
 
         // Get upcoming bookings (end >= now)
         $upcoming = $wpdb->get_results($wpdb->prepare(

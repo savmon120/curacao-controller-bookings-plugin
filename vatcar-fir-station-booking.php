@@ -186,6 +186,8 @@ function vatcar_unrecognised_site_error($as_html = true) {
 // AJAX handlers
 add_action('wp_ajax_update_booking', ['VatCar_ATC_Booking', 'ajax_update_booking']);
 add_action('wp_ajax_delete_booking', ['VatCar_ATC_Booking', 'ajax_delete_booking']);
+add_action('wp_ajax_lookup_controller', ['VatCar_ATC_Booking', 'ajax_lookup_controller']);
+add_action('wp_ajax_create_booking_from_dashboard', 'vatcar_ajax_create_booking_from_dashboard');
 add_action('wp_ajax_vatcar_get_booking_status', ['VatCar_ATC_Dashboard', 'ajax_get_booking_status']);
 add_action('wp_ajax_vatcar_get_compliance_history', ['VatCar_ATC_Dashboard', 'ajax_get_compliance_history']);
 add_action('wp_ajax_vatcar_get_cid_compliance', ['VatCar_ATC_Dashboard', 'ajax_get_cid_compliance']);
@@ -256,6 +258,70 @@ function vatcar_ajax_add_controller() {
         wp_send_json_success('Authorization added successfully');
     } else {
         wp_send_json_error('Failed to add authorization (may already exist)');
+    }
+}
+
+/**
+ * AJAX handler: Create booking from dashboard (admin only)
+ */
+function vatcar_ajax_create_booking_from_dashboard() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Unauthorized');
+    }
+
+    // Verify nonce
+    if (!isset($_POST['vatcar_booking_nonce'])
+        || !wp_verify_nonce($_POST['vatcar_booking_nonce'], 'vatcar_new_booking')) {
+        wp_send_json_error('Security check failed');
+    }
+
+    // Parse and validate input
+    $controller_cid = sanitize_text_field($_POST['controller_cid'] ?? '');
+    $callsign = sanitize_text_field($_POST['callsign'] ?? '');
+    $start_date = sanitize_text_field($_POST['start_date'] ?? '');
+    $start_time = sanitize_text_field($_POST['start_time'] ?? '');
+    $end_date = sanitize_text_field($_POST['end_date'] ?? '');
+    $end_time = sanitize_text_field($_POST['end_time'] ?? '');
+
+    if (empty($controller_cid) || !preg_match('/^\d{1,10}$/', $controller_cid)) {
+        wp_send_json_error('Invalid Controller CID');
+    }
+
+    // Build UTC timestamps
+    $start_str = trim($start_date) . ' ' . trim($start_time);
+    $end_str = trim($end_date) . ' ' . trim($end_time);
+
+    $start_ts = strtotime($start_str . ' UTC');
+    $end_ts = strtotime($end_str . ' UTC');
+
+    if (!$start_ts || !$end_ts) {
+        wp_send_json_error('Invalid start/end date or time');
+    }
+
+    $start = gmdate('Y-m-d H:i:s', $start_ts);
+    $end = gmdate('Y-m-d H:i:s', $end_ts);
+
+    // Detect subdivision
+    $subdivision = vatcar_detect_subdivision();
+    if (empty($subdivision)) {
+        wp_send_json_error(vatcar_unrecognised_site_error(false));
+    }
+
+    // Create booking
+    $result = VatCar_ATC_Booking::save_booking([
+        'cid'         => $controller_cid,
+        'callsign'    => $callsign,
+        'start'       => $start,
+        'end'         => $end,
+        'division'    => 'CAR',
+        'subdivision' => $subdivision,
+        'type'        => 'booking',
+    ]);
+
+    if (is_wp_error($result)) {
+        wp_send_json_error($result->get_error_message());
+    } else {
+        wp_send_json_success('Booking created successfully');
     }
 }
 
@@ -423,11 +489,21 @@ register_activation_hook(__FILE__, function() {
         subdivision varchar(50),
         external_id int NULL,
         controller_name varchar(100) NULL,
+        created_by_cid varchar(20) NULL,
         PRIMARY KEY  (id),
         KEY callsign_start_end (callsign, start, end),
         KEY external_id (external_id)
     ) $charset_collate;";
     dbDelta($sql);
+
+    // Add created_by_cid column if missing (idempotent migration)
+    $booking_columns = $wpdb->get_col($wpdb->prepare(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s",
+        $wpdb->dbname, $table
+    ));
+    if (!in_array('created_by_cid', $booking_columns)) {
+        $wpdb->query("ALTER TABLE $table ADD COLUMN created_by_cid varchar(20) NULL AFTER controller_name");
+    }
 
     // Controller whitelist table - ONLY CREATE, never use dbDelta for updates
     $whitelist_table = $wpdb->prefix . 'atc_controller_whitelist';
