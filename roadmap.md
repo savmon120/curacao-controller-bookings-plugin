@@ -57,7 +57,7 @@
    - Affected: FIR staff dashboard (`includes/class-dashboard.php`)
 
 ## Feature Requests / Ideas
-[] **Admin book on behalf of controller** - Allow FIR staff to create bookings for other controllers
+[x] **Admin book on behalf of controller** - Allow FIR staff to create bookings for other controllers
    - Use case: Staff scheduling, coverage coordination, event planning
    - Implementation: Add CID selection dropdown for admins in booking form, validate target controller eligibility
    - Related: Admins can already edit/delete others' bookings (v1.4.0), this would complete the admin booking management suite

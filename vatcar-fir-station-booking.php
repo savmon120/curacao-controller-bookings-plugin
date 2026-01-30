@@ -38,6 +38,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/class-validation.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-dashboard.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-controller-dashboard.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-controller-widget.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-live-traffic.php';
 
 // Add custom cron schedule for 15-minute intervals
 add_filter('cron_schedules', function($schedules) {
@@ -194,6 +195,8 @@ add_action('wp_ajax_vatcar_get_cid_compliance', ['VatCar_ATC_Dashboard', 'ajax_g
 add_action('wp_ajax_add_controller', 'vatcar_ajax_add_controller');
 add_action('wp_ajax_remove_controller', 'vatcar_ajax_remove_controller');
 add_action('wp_ajax_renew_controller', 'vatcar_ajax_renew_controller');
+add_action('wp_ajax_get_booking_coordination', 'vatcar_ajax_get_booking_coordination');
+add_action('wp_ajax_nopriv_get_booking_coordination', 'vatcar_ajax_get_booking_coordination'); // Public for booking form
 
 /**
  * AJAX handler: Add controller to whitelist
@@ -399,6 +402,89 @@ function vatcar_ajax_renew_controller() {
     }
 }
 
+/**
+ * AJAX handler: Get booking coordination info (overlapping bookings + suggestions)
+ */
+function vatcar_ajax_get_booking_coordination() {
+    $start = sanitize_text_field($_POST['start'] ?? '');
+    $end = sanitize_text_field($_POST['end'] ?? '');
+    $date = sanitize_text_field($_POST['date'] ?? '');
+    
+    // Require at least a date to show coordination
+    if (empty($date)) {
+        wp_send_json_error('Missing date');
+    }
+    
+    $subdivision = vatcar_detect_subdivision();
+    if (empty($subdivision)) {
+        wp_send_json_error('Could not detect FIR subdivision');
+    }
+    
+    // If times aren't fully specified, show all bookings for the day
+    if (empty($start) || empty($end)) {
+        $start = $date . ' 00:00:00';
+        $end = $date . ' 23:59:59';
+    }
+    
+    // Get overlapping bookings
+    $overlapping = VatCar_Live_Traffic::get_overlapping_bookings($start, $end, $subdivision);
+    
+    // Format overlapping bookings for display
+    $overlapping_formatted = [];
+    foreach ($overlapping as $booking) {
+        $overlapping_formatted[] = [
+            'callsign' => $booking->callsign,
+            'controller_name' => $booking->controller_name ?? 'Unknown',
+            'cid' => $booking->cid,
+            'start_time' => gmdate('H:i', strtotime($booking->start)),
+            'end_time' => gmdate('H:i', strtotime($booking->end)),
+        ];
+    }
+    
+    // Get suggestions - filter by rating if logged in, show all if not
+    $suggestions = [];
+    $debug_info = [];
+    
+    if (is_user_logged_in()) {
+        $cid = VatCar_ATC_Booking::vatcar_get_cid();
+        $controller_data = VatCar_ATC_Booking::get_controller_data($cid);
+        $suggestions = VatCar_Live_Traffic::get_complementary_suggestions($cid, $overlapping);
+        
+        // Add debug info when debug mode is enabled
+        if (vatcar_atc_is_debug_enabled()) {
+            $debug_info = [
+                'cid' => $cid,
+                'rating' => isset($controller_data['rating']) ? $controller_data['rating'] : 'N/A',
+                'overlapping_count' => count($overlapping),
+                'suggestion_count' => count($suggestions),
+                'is_logged_in' => true,
+            ];
+        }
+    } else {
+        // Show all complementary positions (no rating filter) if not logged in
+        $suggestions = VatCar_Live_Traffic::get_complementary_suggestions_unfiltered($overlapping);
+        
+        if (vatcar_atc_is_debug_enabled()) {
+            $debug_info = [
+                'is_logged_in' => false,
+                'overlapping_count' => count($overlapping),
+                'suggestion_count' => count($suggestions),
+            ];
+        }
+    }
+    
+    $response = [
+        'overlapping' => $overlapping_formatted,
+        'suggestions' => $suggestions,
+    ];
+    
+    if (!empty($debug_info)) {
+        $response['debug'] = $debug_info;
+    }
+    
+    wp_send_json_success($response);
+}
+
 
 // Styles
 add_action('wp_enqueue_scripts', function() {
@@ -587,6 +673,33 @@ register_activation_hook(__FILE__, function() {
  * Get station list from settings
  * @return array Sorted array of station callsigns (ordered by position type)
  */
+/**
+ * Get unique airport codes from subdivision's station list
+ * 
+ * @param string $subdivision Subdivision code (e.g., 'CUR')
+ * @return array Array of unique airport ICAO codes (e.g., ['TNCC', 'TNCA', 'TNCM'])
+ */
+function vatcar_get_subdivision_airports($subdivision = 'CUR') {
+    // Get configured stations
+    $default = "TNCA_GND\nTNCA_TWR\nTNCA_APP\nTNCC_TWR\nTNCB_TWR\nTNCF_APP\nTNCF_CTR\nTNCM_DEL\nTNCM_TWR\nTNCM_APP\nTQPF_TWR";
+    $stations_setting = get_option('vatcar_stations', $default);
+    
+    // Parse line-separated list
+    $airports = [];
+    $lines = preg_split('/\r\n|\r|\n/', $stations_setting);
+    
+    foreach ($lines as $line) {
+        $station = trim($line);
+        if (!empty($station) && strpos($station, '_') !== false) {
+            // Extract airport code (everything before underscore)
+            $airport = substr($station, 0, strpos($station, '_'));
+            $airports[$airport] = true; // Use array key for uniqueness
+        }
+    }
+    
+    return array_keys($airports);
+}
+
 function vatcar_generate_station_list() {
     $default = "TNCA_GND\nTNCA_TWR\nTNCA_APP\nTNCC_TWR\nTNCB_TWR\nTNCF_APP\nTNCF_CTR\nTNCM_DEL\nTNCM_TWR\nTNCM_APP\nTQPF_TWR";
     $stations_setting = get_option('vatcar_stations', $default);

@@ -144,10 +144,132 @@ if (!defined('ABSPATH')) {
     </select>
   </div>
 
+  <!-- Coordination Preview Section -->
+  <div id="coordination-preview" style="display:none; margin: 20px 0;">
+    <h3 style="font-size: 16px; margin-bottom: 10px;">📋 Booking Coordination</h3>
+    
+    <div id="overlapping-bookings" style="display:none;">
+      <div style="padding: 12px; background: #f0f9ff; border-left: 4px solid #3b82f6; margin-bottom: 15px;">
+        <strong style="color: #1e40af;">Other positions booked at this time:</strong>
+        <div id="overlapping-list" style="margin-top: 8px; font-size: 14px;"></div>
+      </div>
+    </div>
+    
+    <div id="suggestions-container" style="display:none;">
+      <div style="padding: 12px; background: #f0fdf4; border-left: 4px solid #22c55e; margin-bottom: 15px;">
+        <strong style="color: #15803d;">Suggested complementary positions:</strong>
+        <div id="suggestions-list" style="margin-top: 8px; font-size: 14px;"></div>
+      </div>
+    </div>
+    
+    <div id="no-coordination" style="display:none;">
+      <p style="color: #666; font-size: 14px;">ℹ️ No other bookings at this time.</p>
+    </div>
+  </div>
+
   <div class="form-row">
     <button type="submit" class="btn btn-primary">Book</button>
   </div>
 </form>
+
+<script>
+// Booking coordination preview
+(function() {
+    const form = document.getElementById('newBookingForm');
+    const startDate = form.querySelector('[name="start_date"]');
+    const startTime = form.querySelector('[name="start_time"]');
+    const endDate = form.querySelector('[name="end_date"]');
+    const endTime = form.querySelector('[name="end_time"]');
+    const preview = document.getElementById('coordination-preview');
+    
+    let debounceTimer;
+    
+    function updateCoordinationPreview() {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            const startDateVal = startDate.value;
+            const endDateVal = endDate.value;
+            const startTimeVal = startTime.value;
+            const endTimeVal = endTime.value;
+            
+            // Require at least start date to show preview
+            if (!startDateVal) {
+                preview.style.display = 'none';
+                return;
+            }
+            
+            // Use date for the day view, or specific times if fully filled out
+            const dateParam = startDateVal;
+            const startParam = (startDateVal && startTimeVal) ? startDateVal + ' ' + startTimeVal + ':00' : '';
+            const endParam = (endDateVal && endTimeVal) ? endDateVal + ' ' + endTimeVal + ':00' : '';
+            
+            // Fetch overlapping bookings and suggestions
+            fetch(ajaxurl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    action: 'get_booking_coordination',
+                    date: dateParam,
+                    start: startParam,
+                    end: endParam,
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    displayCoordination(data.data);
+                }
+            })
+            .catch(err => console.error('Coordination preview error:', err));
+        }, 600);
+    }
+    
+    function displayCoordination(data) {
+        const overlappingDiv = document.getElementById('overlapping-bookings');
+        const suggestionsDiv = document.getElementById('suggestions-container');
+        const noCoordDiv = document.getElementById('no-coordination');
+        const overlappingList = document.getElementById('overlapping-list');
+        const suggestionsList = document.getElementById('suggestions-list');
+        
+        preview.style.display = 'block';
+        
+        // Show overlapping bookings
+        if (data.overlapping && data.overlapping.length > 0) {
+            overlappingDiv.style.display = 'block';
+            noCoordDiv.style.display = 'none';
+            
+            overlappingList.innerHTML = data.overlapping.map(b => {
+                const name = b.controller_name || 'Unknown';
+                return `<div style="margin: 4px 0;">• <strong>${b.callsign}</strong> - ${name} (${b.start_time} - ${b.end_time}z)</div>`;
+            }).join('');
+        } else {
+            overlappingDiv.style.display = 'none';
+            noCoordDiv.style.display = 'block';
+        }
+        
+        // Show suggestions
+        if (data.suggestions && data.suggestions.length > 0) {
+            suggestionsDiv.style.display = 'block';
+            noCoordDiv.style.display = 'none';
+            
+            suggestionsList.innerHTML = data.suggestions.map(s => {
+                const arrow = s.direction === 'upward' ? '↑' : (s.direction === 'downward' ? '↓' : '•');
+                return `<div style="margin: 4px 0;">${arrow} <strong>${s.callsign}</strong> - ${s.reason} (booked by ${s.booked_by})</div>`;
+            }).join('');
+        } else if (data.overlapping && data.overlapping.length > 0) {
+            // Has overlapping but no suggestions (user can't book complementary positions)
+            suggestionsDiv.style.display = 'none';
+        } else {
+            suggestionsDiv.style.display = 'none';
+        }
+    }
+    
+    // Attach listeners
+    [startDate, startTime, endDate, endTime].forEach(el => {
+        el.addEventListener('change', updateCoordinationPreview);
+    });
+})();
+</script>
 
 <div class="preview-box" id="store-preview" style="display:none;">
   <div><small>Will be stored as (UTC):</small></div>
