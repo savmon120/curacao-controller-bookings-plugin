@@ -129,7 +129,12 @@ document.getElementById('deleteBookingForm').addEventListener('submit', function
 
   const ajaxUrl = '<?php echo esc_url(admin_url('admin-ajax.php')); ?>';
 
-
+  
+  // Debug: Log form data to console
+  console.log('Delete booking form data:');
+  for (let [key, value] of formData.entries()) {
+    console.log(key + ': ' + value);
+  }
 
   fetch(ajaxUrl, { method: 'POST', body: formData })
 
