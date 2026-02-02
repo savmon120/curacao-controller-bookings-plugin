@@ -988,7 +988,7 @@ class VatCar_ATC_Booking {
         
         if (!isset($_POST['vatcar_delete_nonce'])) {
             error_log('VATCAR DELETE: No nonce provided');
-            wp_send_json_error('Security check failed: No nonce provided');
+            wp_send_json_error('Security check failed: No nonce in request. User ID: ' . get_current_user_id());
         }
         
         error_log('Nonce value: ' . $_POST['vatcar_delete_nonce']);
@@ -997,7 +997,7 @@ class VatCar_ATC_Booking {
         
         if (!$nonce_check) {
             error_log('VATCAR DELETE: Nonce verification failed');
-            wp_send_json_error('Security check failed: Invalid nonce');
+            wp_send_json_error('Security check failed: Nonce verification returned ' . var_export($nonce_check, true) . '. User ID: ' . get_current_user_id() . ', Nonce: ' . substr($_POST['vatcar_delete_nonce'], 0, 10) . '...');
         }
 
         $booking_id = intval($_POST['booking_id'] ?? 0);
