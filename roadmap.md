@@ -56,6 +56,20 @@
    - Priority: Medium (display issue only, doesn't affect data integrity)
    - Affected: FIR staff dashboard (`includes/class-dashboard.php`)
 
+[] **Delete booking "Security check failed" error on production (dev/main branches)** - Delete booking works locally but fails with nonce security check on deployed versions
+   - Status: Works correctly on local development environment, fails on remote
+   - Symptoms: Users get "Security check failed" error when attempting to cancel/delete bookings
+   - Local testing: Successfully deletes booking and updates VATSIM API endpoint
+   - Debug added: Console logging added to `templates/delete-booking-form.php` (commit 55578b7)
+   - Investigation needed: 
+     * Check if nonce is being sent in FormData on production
+     * Verify nonce expiration timing (WordPress nonces valid 12-24 hours)
+     * Check for caching issues preventing nonce refresh
+     * Compare server configurations between local and production
+   - Priority: HIGH (blocks core functionality)
+   - Affected: `includes/class-booking.php::ajax_delete_booking()`, `templates/delete-booking-form.php`
+   - Next steps: Check browser console logs on production, verify nonce field value, test with cache cleared
+
 ## Feature Requests / Ideas
 [] **Admin book on behalf of controller** - Allow FIR staff to create bookings for other controllers
    - Use case: Staff scheduling, coverage coordination, event planning

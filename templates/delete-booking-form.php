@@ -123,6 +123,13 @@ document.getElementById('deleteBookingForm').addEventListener('submit', function
 
   clearDeleteMessage();
 
+  
+  // Prevent double submission
+  const submitBtn = document.getElementById('deleteConfirmBtn');
+  if (submitBtn.disabled) return;
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Deleting...';
+
 
 
   const formData = new FormData(this);
@@ -165,12 +172,16 @@ document.getElementById('deleteBookingForm').addEventListener('submit', function
         setTimeout(() => {
 
           document.getElementById('deleteBookingModal').style.display = 'none';
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Confirm Delete';
 
         }, 1200);
 
       } else {
 
         showDeleteMessage('Error: ' + data.data, 'error');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Confirm Delete';
 
       }
 
@@ -181,6 +192,8 @@ document.getElementById('deleteBookingForm').addEventListener('submit', function
       console.error('Delete booking AJAX error:', err);
 
       showDeleteMessage('Unexpected error while deleting booking.', 'error');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Confirm Delete';
 
     });
 
