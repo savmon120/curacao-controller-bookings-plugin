@@ -161,9 +161,6 @@ function vatcar_detect_subdivision() {
     if (strpos($host, 'curacao-fir-vatcar.local') !== false) {
         return 'CUR';
     }
-    if (strpos($host, 'curacao-fir-testing.local') !== false) {
-        return 'CUR';
-    }
 
     // Add more mappings as needed
     return ''; // Default
