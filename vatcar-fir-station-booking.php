@@ -2,7 +2,7 @@
 /**
  * Plugin Name: VATCAR FIR Station Booking
  * Description: ATC booking system for WordPress, integrating with VATSIM ATC Bookings API.
- * Version: 1.4.2
+ * Version: 1.4.1
  * Author: Sav Monzac
  * GitHub Plugin URI: savmon120/curacao-controller-bookings-plugin
  * Primary Branch: dev
@@ -38,6 +38,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/class-validation.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-dashboard.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-controller-dashboard.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-controller-widget.php';
+// require_once plugin_dir_path(__FILE__) . 'includes/class-live-traffic.php'; // TODO: Being developed in separate branch
 
 // Add custom cron schedule for 15-minute intervals
 add_filter('cron_schedules', function($schedules) {
@@ -186,12 +187,17 @@ function vatcar_unrecognised_site_error($as_html = true) {
 // AJAX handlers
 add_action('wp_ajax_update_booking', ['VatCar_ATC_Booking', 'ajax_update_booking']);
 add_action('wp_ajax_delete_booking', ['VatCar_ATC_Booking', 'ajax_delete_booking']);
+add_action('wp_ajax_refresh_delete_nonce', 'vatcar_ajax_refresh_delete_nonce'); // Nonce refresh endpoint
+add_action('wp_ajax_lookup_controller', ['VatCar_ATC_Booking', 'ajax_lookup_controller']);
+add_action('wp_ajax_create_booking_from_dashboard', 'vatcar_ajax_create_booking_from_dashboard');
 add_action('wp_ajax_vatcar_get_booking_status', ['VatCar_ATC_Dashboard', 'ajax_get_booking_status']);
 add_action('wp_ajax_vatcar_get_compliance_history', ['VatCar_ATC_Dashboard', 'ajax_get_compliance_history']);
 add_action('wp_ajax_vatcar_get_cid_compliance', ['VatCar_ATC_Dashboard', 'ajax_get_cid_compliance']);
 add_action('wp_ajax_add_controller', 'vatcar_ajax_add_controller');
 add_action('wp_ajax_remove_controller', 'vatcar_ajax_remove_controller');
 add_action('wp_ajax_renew_controller', 'vatcar_ajax_renew_controller');
+add_action('wp_ajax_get_booking_coordination', 'vatcar_ajax_get_booking_coordination');
+add_action('wp_ajax_nopriv_get_booking_coordination', 'vatcar_ajax_get_booking_coordination'); // Public for booking form
 
 /**
  * AJAX handler: Add controller to whitelist
@@ -256,6 +262,70 @@ function vatcar_ajax_add_controller() {
         wp_send_json_success('Authorization added successfully');
     } else {
         wp_send_json_error('Failed to add authorization (may already exist)');
+    }
+}
+
+/**
+ * AJAX handler: Create booking from dashboard (admin only)
+ */
+function vatcar_ajax_create_booking_from_dashboard() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Unauthorized');
+    }
+
+    // Verify nonce
+    if (!isset($_POST['vatcar_booking_nonce'])
+        || !wp_verify_nonce($_POST['vatcar_booking_nonce'], 'vatcar_new_booking')) {
+        wp_send_json_error('Security check failed');
+    }
+
+    // Parse and validate input
+    $controller_cid = sanitize_text_field($_POST['controller_cid'] ?? '');
+    $callsign = sanitize_text_field($_POST['callsign'] ?? '');
+    $start_date = sanitize_text_field($_POST['start_date'] ?? '');
+    $start_time = sanitize_text_field($_POST['start_time'] ?? '');
+    $end_date = sanitize_text_field($_POST['end_date'] ?? '');
+    $end_time = sanitize_text_field($_POST['end_time'] ?? '');
+
+    if (empty($controller_cid) || !preg_match('/^\d{1,10}$/', $controller_cid)) {
+        wp_send_json_error('Invalid Controller CID');
+    }
+
+    // Build UTC timestamps
+    $start_str = trim($start_date) . ' ' . trim($start_time);
+    $end_str = trim($end_date) . ' ' . trim($end_time);
+
+    $start_ts = strtotime($start_str . ' UTC');
+    $end_ts = strtotime($end_str . ' UTC');
+
+    if (!$start_ts || !$end_ts) {
+        wp_send_json_error('Invalid start/end date or time');
+    }
+
+    $start = gmdate('Y-m-d H:i:s', $start_ts);
+    $end = gmdate('Y-m-d H:i:s', $end_ts);
+
+    // Detect subdivision
+    $subdivision = vatcar_detect_subdivision();
+    if (empty($subdivision)) {
+        wp_send_json_error(vatcar_unrecognised_site_error(false));
+    }
+
+    // Create booking
+    $result = VatCar_ATC_Booking::save_booking([
+        'cid'         => $controller_cid,
+        'callsign'    => $callsign,
+        'start'       => $start,
+        'end'         => $end,
+        'division'    => 'CAR',
+        'subdivision' => $subdivision,
+        'type'        => 'booking',
+    ]);
+
+    if (is_wp_error($result)) {
+        wp_send_json_error($result->get_error_message());
+    } else {
+        wp_send_json_success('Booking created successfully');
     }
 }
 
@@ -331,6 +401,99 @@ function vatcar_ajax_renew_controller() {
     } else {
         wp_send_json_error('Failed to update visitor');
     }
+}
+
+/**
+ * AJAX handler: Get booking coordination info (overlapping bookings + suggestions)
+ */
+function vatcar_ajax_get_booking_coordination() {
+    $start = sanitize_text_field($_POST['start'] ?? '');
+    $end = sanitize_text_field($_POST['end'] ?? '');
+    $date = sanitize_text_field($_POST['date'] ?? '');
+    
+    // Require at least a date to show coordination
+    if (empty($date)) {
+        wp_send_json_error('Missing date');
+    }
+    
+    $subdivision = vatcar_detect_subdivision();
+    if (empty($subdivision)) {
+        wp_send_json_error('Could not detect FIR subdivision');
+    }
+    
+    // If times aren't fully specified, show all bookings for the day
+    if (empty($start) || empty($end)) {
+        $start = $date . ' 00:00:00';
+        $end = $date . ' 23:59:59';
+    }
+    
+    // TODO: Live traffic feature being developed in separate branch
+    // Temporarily return empty results until that branch is merged
+    $overlapping = [];
+    $suggestions = [];
+    
+    /* 
+    // Get overlapping bookings
+    $overlapping = VatCar_Live_Traffic::get_overlapping_bookings($start, $end, $subdivision);
+    
+    // Format overlapping bookings for display
+    $overlapping_formatted = [];
+    foreach ($overlapping as $booking) {
+        $overlapping_formatted[] = [
+            'callsign' => $booking->callsign,
+            'controller_name' => $booking->controller_name ?? 'Unknown',
+            'cid' => $booking->cid,
+            'start_time' => gmdate('H:i', strtotime($booking->start)),
+            'end_time' => gmdate('H:i', strtotime($booking->end)),
+        ];
+    }
+    
+    // Get suggestions - filter by rating if logged in, show all if not
+    $suggestions = [];
+    $debug_info = [];
+    
+    if (is_user_logged_in()) {
+        $cid = VatCar_ATC_Booking::vatcar_get_cid();
+        $controller_data = VatCar_ATC_Booking::get_controller_data($cid);
+        $suggestions = VatCar_Live_Traffic::get_complementary_suggestions($cid, $overlapping);
+        
+        // Add debug info when debug mode is enabled
+        if (vatcar_atc_is_debug_enabled()) {
+            $debug_info = [
+                'cid' => $cid,
+                'rating' => isset($controller_data['rating']) ? $controller_data['rating'] : 'N/A',
+                'overlapping_count' => count($overlapping),
+                'suggestion_count' => count($suggestions),
+                'is_logged_in' => true,
+            ];
+        }
+    } else {
+        // Show all complementary positions (no rating filter) if not logged in
+        $suggestions = VatCar_Live_Traffic::get_complementary_suggestions_unfiltered($overlapping);
+        
+        if (vatcar_atc_is_debug_enabled()) {
+            $debug_info = [
+                'is_logged_in' => false,
+                'overlapping_count' => count($overlapping),
+                'suggestion_count' => count($suggestions),
+            ];
+        }
+    }
+    */
+    
+    $overlapping_formatted = [];
+    $debug_info = [];
+    
+    $response = [
+        'overlapping' => $overlapping_formatted,
+        'suggestions' => $suggestions,
+    ];
+    
+    if (!empty($debug_info)) {
+        $response['debug'] = $debug_info;
+    }
+    
+    wp_send_json_success($response);
 }
 
 
@@ -423,11 +586,21 @@ register_activation_hook(__FILE__, function() {
         subdivision varchar(50),
         external_id int NULL,
         controller_name varchar(100) NULL,
+        created_by_cid varchar(20) NULL,
         PRIMARY KEY  (id),
         KEY callsign_start_end (callsign, start, end),
         KEY external_id (external_id)
     ) $charset_collate;";
     dbDelta($sql);
+
+    // Add created_by_cid column if missing (idempotent migration)
+    $booking_columns = $wpdb->get_col($wpdb->prepare(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s",
+        $wpdb->dbname, $table
+    ));
+    if (!in_array('created_by_cid', $booking_columns)) {
+        $wpdb->query("ALTER TABLE $table ADD COLUMN created_by_cid varchar(20) NULL AFTER controller_name");
+    }
 
     // Controller whitelist table - ONLY CREATE, never use dbDelta for updates
     $whitelist_table = $wpdb->prefix . 'atc_controller_whitelist';
@@ -511,6 +684,33 @@ register_activation_hook(__FILE__, function() {
  * Get station list from settings
  * @return array Sorted array of station callsigns (ordered by position type)
  */
+/**
+ * Get unique airport codes from subdivision's station list
+ * 
+ * @param string $subdivision Subdivision code (e.g., 'CUR')
+ * @return array Array of unique airport ICAO codes (e.g., ['TNCC', 'TNCA', 'TNCM'])
+ */
+function vatcar_get_subdivision_airports($subdivision = 'CUR') {
+    // Get configured stations
+    $default = "TNCA_GND\nTNCA_TWR\nTNCA_APP\nTNCC_TWR\nTNCB_TWR\nTNCF_APP\nTNCF_CTR\nTNCM_DEL\nTNCM_TWR\nTNCM_APP\nTQPF_TWR";
+    $stations_setting = get_option('vatcar_stations', $default);
+    
+    // Parse line-separated list
+    $airports = [];
+    $lines = preg_split('/\r\n|\r|\n/', $stations_setting);
+    
+    foreach ($lines as $line) {
+        $station = trim($line);
+        if (!empty($station) && strpos($station, '_') !== false) {
+            // Extract airport code (everything before underscore)
+            $airport = substr($station, 0, strpos($station, '_'));
+            $airports[$airport] = true; // Use array key for uniqueness
+        }
+    }
+    
+    return array_keys($airports);
+}
+
 function vatcar_generate_station_list() {
     $default = "TNCA_GND\nTNCA_TWR\nTNCA_APP\nTNCC_TWR\nTNCB_TWR\nTNCF_APP\nTNCF_CTR\nTNCM_DEL\nTNCM_TWR\nTNCM_APP\nTQPF_TWR";
     $stations_setting = get_option('vatcar_stations', $default);
@@ -1196,4 +1396,25 @@ function vatcar_atc_whitelist_page() {
         </script>
     </div>
     <?php
+}
+
+/**
+ * AJAX handler to refresh delete booking nonce
+ * This helps prevent stale nonce issues in long-lived page sessions
+ */
+function vatcar_ajax_refresh_delete_nonce() {
+    // User must be logged in
+    if (!is_user_logged_in()) {
+        wp_send_json_error('Not logged in');
+    }
+    
+    // Generate fresh nonce
+    $fresh_nonce = wp_create_nonce('vatcar_delete_booking');
+    
+    error_log('VATCAR: Fresh delete nonce generated for user ' . get_current_user_id() . ': ' . substr($fresh_nonce, 0, 10) . '...');
+    
+    wp_send_json_success([
+        'nonce' => $fresh_nonce,
+        'user_id' => get_current_user_id(),
+    ]);
 }

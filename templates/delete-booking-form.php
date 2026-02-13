@@ -68,7 +68,45 @@ function openDeleteModal(el) {
 
 
   clearDeleteMessage();
+  
+  // Refresh nonce when modal opens to prevent stale nonce issues
+  refreshDeleteNonce();
+}
 
+/**
+ * Refresh the delete nonce to prevent stale nonce issues
+ * This is especially important for long-lived page sessions
+ */
+function refreshDeleteNonce() {
+  const ajaxUrl = '<?php echo esc_url(admin_url('admin-ajax.php')); ?>';
+  
+  fetch(ajaxUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: 'action=refresh_delete_nonce',
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.success) {
+      const nonceField = document.getElementById('deleteBookingForm').querySelector('[name="vatcar_delete_nonce"]');
+      if (nonceField) {
+        const oldNonce = nonceField.value;
+        nonceField.value = data.data.nonce;
+        console.log('Delete nonce refreshed:', {
+          old: oldNonce.substring(0, 10) + '...',
+          new: data.data.nonce.substring(0, 10) + '...',
+          user_id: data.data.user_id
+        });
+      }
+    } else {
+      console.error('Failed to refresh delete nonce:', data.data);
+    }
+  })
+  .catch(err => {
+    console.error('Error refreshing delete nonce:', err);
+  });
 }
 
 
@@ -137,11 +175,18 @@ document.getElementById('deleteBookingForm').addEventListener('submit', function
   const ajaxUrl = '<?php echo esc_url(admin_url('admin-ajax.php')); ?>';
 
   
-  // Debug: Log form data to console
-  console.log('Delete booking form data:');
+  // Debug: Log comprehensive request details
+  console.log('=== DELETE BOOKING REQUEST DEBUG ===');
+  console.log('AJAX URL:', ajaxUrl);
+  console.log('Current page URL:', window.location.href);
+  console.log('Referrer:', document.referrer);
+  console.log('User Agent:', navigator.userAgent);
+  console.log('Cookies present:', document.cookie ? 'YES' : 'NO');
+  console.log('Form data entries:');
   for (let [key, value] of formData.entries()) {
-    console.log(key + ': ' + value);
+    console.log('  ' + key + ':', value);
   }
+  console.log('=== END DEBUG ===');
 
   fetch(ajaxUrl, { method: 'POST', body: formData })
 

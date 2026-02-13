@@ -985,6 +985,10 @@ class VatCar_ATC_Booking {
         error_log('User ID: ' . get_current_user_id());
         error_log('User logged in: ' . (is_user_logged_in() ? 'YES' : 'NO'));
         error_log('Nonce provided: ' . (isset($_POST['vatcar_delete_nonce']) ? 'YES' : 'NO'));
+        error_log('Current URL: ' . (isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : 'NOT SET'));
+        error_log('Site URL: ' . site_url());
+        error_log('Admin URL: ' . admin_url());
+        error_log('All POST keys: ' . implode(', ', array_keys($_POST)));
         
         if (!isset($_POST['vatcar_delete_nonce'])) {
             error_log('VATCAR DELETE: No nonce provided');
@@ -992,12 +996,22 @@ class VatCar_ATC_Booking {
         }
         
         error_log('Nonce value: ' . $_POST['vatcar_delete_nonce']);
+        error_log('Expected nonce action: vatcar_delete_booking');
+        
+        // Test nonce verification
         $nonce_check = wp_verify_nonce($_POST['vatcar_delete_nonce'], 'vatcar_delete_booking');
         error_log('Nonce check result: ' . var_export($nonce_check, true));
+        error_log('Nonce check type: ' . gettype($nonce_check));
+        
+        // Try alternative nonce check for debugging
+        $alt_nonce_check = wp_verify_nonce($_POST['vatcar_delete_nonce'], 'vatcar_delete_nonce');
+        error_log('Alternative nonce check (using field name as action): ' . var_export($alt_nonce_check, true));
         
         if (!$nonce_check) {
             error_log('VATCAR DELETE: Nonce verification failed');
-            wp_send_json_error('Security check failed: Nonce verification returned ' . var_export($nonce_check, true) . '. User ID: ' . get_current_user_id() . ', Nonce: ' . substr($_POST['vatcar_delete_nonce'], 0, 10) . '...');
+            error_log('Cookie data available: ' . (isset($_COOKIE) && !empty($_COOKIE) ? 'YES' : 'NO'));
+            error_log('Session user ID from cookie: ' . (isset($_COOKIE[LOGGED_IN_COOKIE]) ? 'SET' : 'NOT SET'));
+            wp_send_json_error('Security check failed: Nonce verification returned ' . var_export($nonce_check, true) . '. User ID: ' . get_current_user_id() . ', Nonce: ' . substr($_POST['vatcar_delete_nonce'], 0, 10) . '... (See error log for details)');
         }
 
         $booking_id = intval($_POST['booking_id'] ?? 0);
