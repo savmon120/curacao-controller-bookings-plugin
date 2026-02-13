@@ -152,7 +152,7 @@ add_shortcode('vatcar_my_bookings', ['VatCar_Controller_Dashboard', 'render_dash
 
 function vatcar_detect_subdivision() {
     $host = isset($_SERVER['HTTP_HOST']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST'])) : '';
-    if (strpos($host, 'curacao.vatcar.net') !== false || strpos($host, 'curacao.vatcar.local') !== false) || strpos($host, 'curacao-fir-testing.local/') !== false) {
+    if (strpos($host, 'curacao.vatcar.net') !== false || strpos($host, 'curacao.vatcar.local') !== false) || strpos($host, 'curacao-fir-testing.local') !== false) {
         return 'CUR';
     }
     if (strpos($host, 'piarco.vatcar.net') !== false) {
