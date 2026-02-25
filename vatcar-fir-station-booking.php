@@ -40,12 +40,18 @@ require_once plugin_dir_path(__FILE__) . 'includes/class-controller-dashboard.ph
 require_once plugin_dir_path(__FILE__) . 'includes/class-controller-widget.php';
 // require_once plugin_dir_path(__FILE__) . 'includes/class-live-traffic.php'; // TODO: Being developed in separate branch
 
-// Add custom cron schedule for 15-minute intervals
+// Add custom cron schedules
 add_filter('cron_schedules', function($schedules) {
     if (!isset($schedules['every_15_minutes'])) {
         $schedules['every_15_minutes'] = [
             'interval' => 15 * 60,
             'display' => __('Every 15 Minutes')
+        ];
+    }
+    if (!isset($schedules['every_5_minutes'])) {
+        $schedules['every_5_minutes'] = [
+            'interval' => 300,
+            'display' => __('Every 5 Minutes')
         ];
     }
     return $schedules;
@@ -55,12 +61,12 @@ add_filter('cron_schedules', function($schedules) {
 function vatcar_check_booking_compliance() {
     global $wpdb;
     $table = $wpdb->prefix . 'atc_bookings';
-    $now = current_time('mysql');
-    
+    $now_ts = time();
+
     // Get bookings that started within last 30 minutes or start within next 30 minutes
     // This ensures we catch bookings at their start time
-    $start_window_past = gmdate('Y-m-d H:i:s', strtotime($now) - (30 * 60));
-    $start_window_future = gmdate('Y-m-d H:i:s', strtotime($now) + (30 * 60));
+    $start_window_past = gmdate('Y-m-d H:i:s', $now_ts - (30 * 60));
+    $start_window_future = gmdate('Y-m-d H:i:s', $now_ts + (30 * 60));
     
     $bookings = $wpdb->get_results($wpdb->prepare(
         "SELECT * FROM $table WHERE start >= %s AND start <= %s AND cid IS NOT NULL AND cid != ''",
@@ -78,7 +84,7 @@ function vatcar_check_booking_compliance() {
         $recent_check = $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM $history_table WHERE booking_id = %d AND checked_at > %s",
             $booking->id,
-            gmdate('Y-m-d H:i:s', strtotime($now) - (15 * 60))
+            gmdate('Y-m-d H:i:s', $now_ts - (15 * 60))
         ));
         
         if ((int)$recent_check > 0) {
@@ -135,15 +141,6 @@ register_deactivation_hook(__FILE__, function() {
 
 add_action('vatcar_cleanup_expired_bookings', 'vatcar_cleanup_expired_bookings');
 add_action('vatcar_check_booking_compliance', 'vatcar_check_booking_compliance');
-
-// Add custom cron schedule for testing
-add_filter('cron_schedules', function($schedules) {
-    $schedules['every_5_minutes'] = [
-        'interval' => 300, // 5 minutes
-        'display' => __('Every 5 Minutes')
-    ];
-    return $schedules;
-});
 
 // Shortcodes
 add_shortcode('vatcar_atc_booking', ['VatCar_ATC_Booking', 'render_form']);
@@ -370,10 +367,6 @@ function vatcar_ajax_renew_controller() {
     
     if (!current_user_can('manage_options')) {
         wp_send_json_error('Insufficient permissions');
-    }
-
-    if (!current_user_can('manage_options')) {
-        wp_send_json_error('Unauthorized');
     }
 
     $cid = sanitize_text_field($_POST['cid'] ?? '');
@@ -1219,9 +1212,9 @@ function vatcar_atc_whitelist_page() {
                         $is_expired = false;
                         $expires_display = 'Never';
                         if (!empty($entry->expires_at)) {
-                            $expires_ts = strtotime($entry->expires_at);
+                            $expires_ts = strtotime($entry->expires_at . ' UTC');
                             $is_expired = $expires_ts <= $now;
-                            $expires_display = date('Y-m-d H:i', $expires_ts);
+                            $expires_display = gmdate('Y-m-d H:i', $expires_ts) . 'z';
                         }
                         
                         $row_style = $is_expired ? 'opacity: 0.5; background-color: #f9f9f9;' : '';
@@ -1250,7 +1243,7 @@ function vatcar_atc_whitelist_page() {
                             <td style="font-size: 0.9em;"><?php echo wp_kses_post($positions_display); ?></td>
                             <td><?php echo esc_html($entry->notes); ?></td>
                             <td><?php echo esc_html($added_by_name); ?></td>
-                            <td><?php echo esc_html(date('Y-m-d H:i', strtotime($entry->date_added))); ?></td>
+                            <td><?php echo esc_html(gmdate('Y-m-d H:i', strtotime($entry->date_added . ' UTC')) . 'z'); ?></td>
                             <td><?php echo esc_html($expires_display); ?></td>
                             <td><?php echo $status_text; ?></td>
                             <td>
@@ -1403,18 +1396,13 @@ function vatcar_atc_whitelist_page() {
  * This helps prevent stale nonce issues in long-lived page sessions
  */
 function vatcar_ajax_refresh_delete_nonce() {
-    // User must be logged in
     if (!is_user_logged_in()) {
         wp_send_json_error('Not logged in');
     }
-    
-    // Generate fresh nonce
+
     $fresh_nonce = wp_create_nonce('vatcar_delete_booking');
-    
-    error_log('VATCAR: Fresh delete nonce generated for user ' . get_current_user_id() . ': ' . substr($fresh_nonce, 0, 10) . '...');
-    
+
     wp_send_json_success([
         'nonce' => $fresh_nonce,
-        'user_id' => get_current_user_id(),
     ]);
 }

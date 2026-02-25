@@ -124,7 +124,6 @@ class VatCar_ATC_Schedule {
             $now
         ));
         $current_cid = VatCar_ATC_Booking::vatcar_get_cid();
-        $super_cid = '140'; // Danny
 
         ob_start();
 
@@ -388,7 +387,7 @@ class VatCar_ATC_Schedule {
             // Display TNCA_GND as TNCA_RMP
             $display_callsign = ($booking->callsign === 'TNCA_GND') ? 'TNCA_RMP' : $booking->callsign;
 
-            echo '<td style="font-size:18px;"'
+            echo '<td style="font-size:18px;">'
                . '<span style="font-size:15px; color:#555;">' . esc_html($first_name) . '</span><br>'
                . '<b>' . esc_html($display_callsign) . '</b>'
                . '</td>';
@@ -403,9 +402,8 @@ class VatCar_ATC_Schedule {
             // 3. Super user (CID 140 - Danny)
             $is_admin = current_user_can('manage_options');
             $is_own_booking = $cid_value !== '' && (string)$cid_value === (string)$current_cid;
-            $is_super = (string)$current_cid === (string)$super_cid;
-            
-            if ($is_admin || $is_own_booking || $is_super) {
+
+            if ($is_admin || $is_own_booking) {
                 echo '<td style="font-size:16px;">';
                 //echo '<a href="#" onclick="openEditModal(this)"'
                 //   . ' data-id="' . esc_attr($booking->id) . '"'

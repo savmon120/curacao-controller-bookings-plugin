@@ -88,9 +88,9 @@ class VatCar_ATC_Dashboard {
                                 </td>
                                 <td>
                                     <small>
-                                        <?php echo esc_html(date('M d, H:i', strtotime($booking->start))); ?>
+                                        <?php echo esc_html(gmdate('M d, H:i', strtotime($booking->start . ' UTC'))); ?>
                                         -
-                                        <?php echo esc_html(date('H:i', strtotime($booking->end))); ?>
+                                        <?php echo esc_html(gmdate('H:i', strtotime($booking->end . ' UTC'))); ?>
                                     </small>
                                 </td>
                                 <td>
@@ -173,6 +173,10 @@ class VatCar_ATC_Dashboard {
         </style>
 
         <script>
+        var vatcarAdminNonce = '<?php echo esc_js(wp_create_nonce('vatcar_admin_status')); ?>';
+        </script>
+
+        <script>
         document.addEventListener('DOMContentLoaded', function() {
             // Load status for each booking
             document.querySelectorAll('.booking-status').forEach(function(el) {
@@ -184,7 +188,7 @@ class VatCar_ATC_Dashboard {
                 fetch(ajaxurl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'action=vatcar_get_booking_status&cid=' + encodeURIComponent(cid) + '&callsign=' + encodeURIComponent(callsign) + '&start=' + encodeURIComponent(start) + '&booking_id=' + encodeURIComponent(bookingId) + '&record=false'
+                    body: 'action=vatcar_get_booking_status&cid=' + encodeURIComponent(cid) + '&callsign=' + encodeURIComponent(callsign) + '&start=' + encodeURIComponent(start) + '&booking_id=' + encodeURIComponent(bookingId) + '&record=false&nonce=' + encodeURIComponent(vatcarAdminNonce)
                 })
                 .then(response => response.json())
                 .then(data => {
@@ -217,7 +221,7 @@ class VatCar_ATC_Dashboard {
                     fetch(ajaxurl, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: 'action=vatcar_get_booking_status&cid=' + encodeURIComponent(cid) + '&callsign=' + encodeURIComponent(callsign) + '&start=' + encodeURIComponent(start) + '&booking_id=' + encodeURIComponent(bookingId) + '&record=true'
+                        body: 'action=vatcar_get_booking_status&cid=' + encodeURIComponent(cid) + '&callsign=' + encodeURIComponent(callsign) + '&start=' + encodeURIComponent(start) + '&booking_id=' + encodeURIComponent(bookingId) + '&record=true&nonce=' + encodeURIComponent(vatcarAdminNonce)
                     })
                     .then(response => response.json())
                     .then(data => {
@@ -259,7 +263,7 @@ class VatCar_ATC_Dashboard {
                     fetch(ajaxurl, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: 'action=vatcar_get_cid_compliance&cid=' + encodeURIComponent(cid)
+                        body: 'action=vatcar_get_cid_compliance&cid=' + encodeURIComponent(cid) + '&nonce=' + encodeURIComponent(vatcarAdminNonce)
                     })
                     .then(response => response.json())
                     .then(data => {
@@ -323,6 +327,10 @@ class VatCar_ATC_Dashboard {
      * AJAX endpoint to get current booking status
      */
     public static function ajax_get_booking_status() {
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'vatcar_admin_status')) {
+            wp_send_json_error('Security check failed');
+        }
+
         $cid = isset($_POST['cid']) ? sanitize_text_field($_POST['cid']) : '';
         $callsign = isset($_POST['callsign']) ? sanitize_text_field($_POST['callsign']) : '';
         $start = isset($_POST['start']) ? sanitize_text_field($_POST['start']) : '';
@@ -371,6 +379,10 @@ class VatCar_ATC_Dashboard {
      * AJAX endpoint to get compliance history for a CID
      */
     public static function ajax_get_cid_compliance() {
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'vatcar_admin_status')) {
+            wp_send_json_error('Security check failed');
+        }
+
         if (!current_user_can('manage_options')) {
             wp_send_json_error('Unauthorized');
         }
@@ -410,6 +422,10 @@ class VatCar_ATC_Dashboard {
      * AJAX endpoint to get compliance history for a booking (deprecated, kept for compatibility)
      */
     public static function ajax_get_compliance_history() {
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'vatcar_admin_status')) {
+            wp_send_json_error('Security check failed');
+        }
+
         if (!current_user_can('manage_options')) {
             wp_send_json_error('Unauthorized');
         }

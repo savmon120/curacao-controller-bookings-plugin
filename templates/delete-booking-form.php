@@ -92,16 +92,8 @@ function refreshDeleteNonce() {
     if (data.success) {
       const nonceField = document.getElementById('deleteBookingForm').querySelector('[name="vatcar_delete_nonce"]');
       if (nonceField) {
-        const oldNonce = nonceField.value;
         nonceField.value = data.data.nonce;
-        console.log('Delete nonce refreshed:', {
-          old: oldNonce.substring(0, 10) + '...',
-          new: data.data.nonce.substring(0, 10) + '...',
-          user_id: data.data.user_id
-        });
       }
-    } else {
-      console.error('Failed to refresh delete nonce:', data.data);
     }
   })
   .catch(err => {
@@ -173,20 +165,6 @@ document.getElementById('deleteBookingForm').addEventListener('submit', function
   const formData = new FormData(this);
 
   const ajaxUrl = '<?php echo esc_url(admin_url('admin-ajax.php')); ?>';
-
-  
-  // Debug: Log comprehensive request details
-  console.log('=== DELETE BOOKING REQUEST DEBUG ===');
-  console.log('AJAX URL:', ajaxUrl);
-  console.log('Current page URL:', window.location.href);
-  console.log('Referrer:', document.referrer);
-  console.log('User Agent:', navigator.userAgent);
-  console.log('Cookies present:', document.cookie ? 'YES' : 'NO');
-  console.log('Form data entries:');
-  for (let [key, value] of formData.entries()) {
-    console.log('  ' + key + ':', value);
-  }
-  console.log('=== END DEBUG ===');
 
   fetch(ajaxUrl, { method: 'POST', body: formData })
 
