@@ -28,7 +28,7 @@ class VatCar_Controller_Dashboard {
 
         global $wpdb;
         $table = $wpdb->prefix . 'atc_bookings';
-        $now = current_time('mysql');
+        $now = gmdate('Y-m-d H:i:s');
 
         // Get upcoming bookings (end >= now)
         $upcoming = $wpdb->get_results($wpdb->prepare(
@@ -84,7 +84,7 @@ class VatCar_Controller_Dashboard {
                             You have solo certification for additional positions.
                         <?php endif; ?>
                         <?php if ($whitelist_entry->expires_at): ?>
-                            <strong>Expires:</strong> <?php echo esc_html(date('F j, Y g:i A', strtotime($whitelist_entry->expires_at))); ?>
+                            <strong>Expires:</strong> <?php echo esc_html(gmdate('F j, Y G:i', strtotime($whitelist_entry->expires_at . ' UTC'))); ?>z
                         <?php endif; ?>
                     </p>
                     <?php if (!empty($authorized_positions)): ?>
@@ -157,14 +157,14 @@ class VatCar_Controller_Dashboard {
                                         </td>
                                         <td>
                                             <div class="booking-time">
-                                                <?php echo esc_html(date('M j, Y', strtotime($booking->start))); ?><br>
-                                                <?php echo esc_html(date('H:i', strtotime($booking->start))); ?>z
+                                                <?php echo esc_html(gmdate('M j, Y', strtotime($booking->start . ' UTC'))); ?><br>
+                                                <?php echo esc_html(gmdate('H:i', strtotime($booking->start . ' UTC'))); ?>z
                                             </div>
                                         </td>
                                         <td>
                                             <div class="booking-time">
-                                                <?php echo esc_html(date('M j, Y', strtotime($booking->end))); ?><br>
-                                                <?php echo esc_html(date('H:i', strtotime($booking->end))); ?>z
+                                                <?php echo esc_html(gmdate('M j, Y', strtotime($booking->end . ' UTC'))); ?><br>
+                                                <?php echo esc_html(gmdate('H:i', strtotime($booking->end . ' UTC'))); ?>z
                                             </div>
                                         </td>
                                         <td>
@@ -222,8 +222,8 @@ class VatCar_Controller_Dashboard {
                                         </td>
                                         <td>
                                             <div class="booking-time">
-                                                <?php echo esc_html(date('M j, Y', strtotime($booking->start))); ?><br>
-                                                <?php echo esc_html(date('H:i', strtotime($booking->start))); ?>z - <?php echo esc_html(date('H:i', strtotime($booking->end))); ?>z
+                                                <?php echo esc_html(gmdate('M j, Y', strtotime($booking->start . ' UTC'))); ?><br>
+                                                <?php echo esc_html(gmdate('H:i', strtotime($booking->start . ' UTC'))); ?>z - <?php echo esc_html(gmdate('H:i', strtotime($booking->end . ' UTC'))); ?>z
                                             </div>
                                         </td>
                                         <td>

@@ -68,7 +68,37 @@ function openDeleteModal(el) {
 
 
   clearDeleteMessage();
+  
+  // Refresh nonce when modal opens to prevent stale nonce issues
+  refreshDeleteNonce();
+}
 
+/**
+ * Refresh the delete nonce to prevent stale nonce issues
+ * This is especially important for long-lived page sessions
+ */
+function refreshDeleteNonce() {
+  const ajaxUrl = '<?php echo esc_url(admin_url('admin-ajax.php')); ?>';
+  
+  fetch(ajaxUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: 'action=refresh_delete_nonce',
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.success) {
+      const nonceField = document.getElementById('deleteBookingForm').querySelector('[name="vatcar_delete_nonce"]');
+      if (nonceField) {
+        nonceField.value = data.data.nonce;
+      }
+    }
+  })
+  .catch(err => {
+    console.error('Error refreshing delete nonce:', err);
+  });
 }
 
 
@@ -135,13 +165,6 @@ document.getElementById('deleteBookingForm').addEventListener('submit', function
   const formData = new FormData(this);
 
   const ajaxUrl = '<?php echo esc_url(admin_url('admin-ajax.php')); ?>';
-
-  
-  // Debug: Log form data to console
-  console.log('Delete booking form data:');
-  for (let [key, value] of formData.entries()) {
-    console.log(key + ': ' + value);
-  }
 
   fetch(ajaxUrl, { method: 'POST', body: formData })
 
